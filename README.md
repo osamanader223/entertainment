@@ -1,31 +1,31 @@
-# BOLOS ALLEY OS — Entertainment Venue Operating System
+﻿# BOLOS ALLEY OS â€” Entertainment Venue Operating System
 
 > Multi-tenant SaaS for billiard, bowling, PS5, VR, karaoke & more.
 > Built with Next.js 15, Supabase, TypeScript, TailwindCSS, shadcn/ui.
 
 ---
 
-## ✅ Phase 1 — Foundation (this drop)
+## âœ… Phase 1 â€” Foundation (this drop)
 
 What's in this codebase:
 
-- **Multi-tenant database** — tenants → branches → stations → bookings → sessions, all isolated by Row-Level Security.
+- **Multi-tenant database** â€” tenants â†’ branches â†’ stations â†’ bookings â†’ sessions, all isolated by Row-Level Security.
 - **Full schema** for: profiles, roles, game types, stations, pricing rules, bookings, live sessions, queue tickets, frozen balances, payments ledger, loyalty accounts/ledger/badges/rewards, marketing offers, AI behavior events, customer insights, notifications outbox, append-only activity log.
-- **Authentication** — phone OTP, email/password, Google OAuth, role-based access (`super_admin` / `tenant_admin` / `manager` / `staff` / `customer`).
+- **Authentication** â€” phone OTP, email/password, Google OAuth, role-based access (`super_admin` / `tenant_admin` / `manager` / `staff` / `customer`).
 - **Next.js 15 app** with App Router, Server Components, Tailwind dark theme, RTL/LTR (Arabic + English), shadcn/ui primitives, Framer Motion ready.
 - **Seed data** for a demo tenant "Bolos Alley Jeddah" with 14 stations matching your PDF (4 pool, 4 bowling, 2 ping-pong, 2 foosball, 2 PS5).
 
 What's coming:
 
-- **Phase 2** — Real-time station grid, live timers, booking flow, smart queue (your PDF's "14-station one-touch" + bowling tickets).
-- **Phase 3** — Moyasar (Mada + Apple Pay + Visa).
-- **Phase 4** — AI WhatsApp agent (OpenAI + WhatsApp Cloud API) + customer analytics.
-- **Phase 5** — Admin dashboard (financial, marketing, IFTTT smart-lights integration).
-- **Phase 6** — White-label branding, Vercel production deploy.
+- **Phase 2** â€” Real-time station grid, live timers, booking flow, smart queue (your PDF's "14-station one-touch" + bowling tickets).
+- **Phase 3** â€” Moyasar (Mada + Apple Pay + Visa).
+- **Phase 4** â€” AI WhatsApp agent (OpenAI + WhatsApp Cloud API) + customer analytics.
+- **Phase 5** â€” Admin dashboard (financial, marketing, IFTTT smart-lights integration).
+- **Phase 6** â€” White-label branding, Vercel production deploy.
 
 ---
 
-## 🚀 Quick Start
+## ðŸš€ Quick Start
 
 ### 1. Install dependencies
 
@@ -75,7 +75,7 @@ Open http://localhost:3000
 
 ### 7. Create your super-admin
 
-After signing up your own account, mark yourself as super-admin (from Supabase Studio → SQL editor):
+After signing up your own account, mark yourself as super-admin (from Supabase Studio â†’ SQL editor):
 
 ```sql
 insert into public.platform_admins (user_id)
@@ -96,40 +96,40 @@ values (
 
 ---
 
-## 🏗 Architecture
+## ðŸ— Architecture
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│  Next.js 15 (App Router, Server Components, Edge-ready)    │
-│  ├─ /            Landing                                   │
-│  ├─ /login       Phone OTP / Email / Google                │
-│  ├─ /signup      Email + phone + PDPL consent              │
-│  ├─ /verify      6-digit OTP                               │
-│  ├─ /dashboard   Role-aware shell                          │
-│  └─ /auth/*      OAuth callback, signout                   │
-└────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌────────────────────────────────────────────────────────────┐
-│  Supabase                                                  │
-│  ├─ Auth (Phone, Email, OAuth)                             │
-│  ├─ Postgres (5 migrations, ~25 tables)                    │
-│  │   ├─ RLS on every table                                 │
-│  │   ├─ Helper fns: is_super_admin, is_tenant_member,      │
-│  │   │   is_tenant_manager, has_branch_access              │
-│  │   └─ Triggers: profile auto-create, updated_at,         │
-│  │       session ends_at, station status sync              │
-│  ├─ Realtime (for Phase 2 station grid)                    │
-│  ├─ Storage (for branding logos, etc.)                     │
-│  └─ Edge Functions (for Phase 3-4 webhooks)                │
-└────────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚  Next.js 15 (App Router, Server Components, Edge-ready)    â”‚
+â”‚  â”œâ”€ /            Landing                                   â”‚
+â”‚  â”œâ”€ /login       Phone OTP / Email / Google                â”‚
+â”‚  â”œâ”€ /signup      Email + phone + PDPL consent              â”‚
+â”‚  â”œâ”€ /verify      6-digit OTP                               â”‚
+â”‚  â”œâ”€ /dashboard   Role-aware shell                          â”‚
+â”‚  â””â”€ /auth/*      OAuth callback, signout                   â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                          â”‚
+                          â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚  Supabase                                                  â”‚
+â”‚  â”œâ”€ Auth (Phone, Email, OAuth)                             â”‚
+â”‚  â”œâ”€ Postgres (5 migrations, ~25 tables)                    â”‚
+â”‚  â”‚   â”œâ”€ RLS on every table                                 â”‚
+â”‚  â”‚   â”œâ”€ Helper fns: is_super_admin, is_tenant_member,      â”‚
+â”‚  â”‚   â”‚   is_tenant_manager, has_branch_access              â”‚
+â”‚  â”‚   â””â”€ Triggers: profile auto-create, updated_at,         â”‚
+â”‚  â”‚       session ends_at, station status sync              â”‚
+â”‚  â”œâ”€ Realtime (for Phase 2 station grid)                    â”‚
+â”‚  â”œâ”€ Storage (for branding logos, etc.)                     â”‚
+â”‚  â””â”€ Edge Functions (for Phase 3-4 webhooks)                â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ### Multi-tenancy model
 
 - **Tenant** = an entertainment business (e.g. "Bolos Jeddah Group"). White-label colors, plan, locale, timezone all per-tenant.
 - **Branch** = a physical location under a tenant (e.g. "Bolos Jeddah - Main").
-- **User roles** are scoped: a user can be `staff` at branch A, `manager` at branch B, and a `customer` of tenant C — all simultaneously.
+- **User roles** are scoped: a user can be `staff` at branch A, `manager` at branch B, and a `customer` of tenant C â€” all simultaneously.
 - **RLS** enforces tenant + branch isolation at the database layer. Even if app code has a bug, customers can't see other customers' data.
 
 ### Saudi-specific defaults
@@ -143,49 +143,49 @@ values (
 
 ---
 
-## 📂 Folder Structure
+## ðŸ“‚ Folder Structure
 
 ```
 bolos-alley-os/
-├── src/
-│   ├── app/
-│   │   ├── (auth)/           Auth pages (login, signup, verify)
-│   │   ├── (dashboard)/      Dashboard pages (requires auth)
-│   │   ├── auth/             OAuth callback + signout routes
-│   │   ├── layout.tsx        Root layout (RTL/LTR, dark theme)
-│   │   ├── page.tsx          Landing
-│   │   └── globals.css       Tailwind + theme tokens
-│   ├── components/
-│   │   ├── ui/               shadcn primitives
-│   │   ├── auth/             LoginForm, SignupForm, VerifyOtpForm
-│   │   └── ...
-│   ├── lib/
-│   │   ├── supabase/         client.ts, server.ts, middleware.ts, admin.ts
-│   │   ├── validators/       Zod schemas
-│   │   ├── utils/            cn, formatMoney, formatDuration, normalizePhone
-│   │   └── auth.ts           Server auth helpers (getAuthContext, requireRole)
-│   ├── types/
-│   │   └── database.ts       Generated Supabase types
-│   └── middleware.ts         Session refresh + route protection
-├── supabase/
-│   ├── migrations/
-│   │   ├── 00001_core_tenancy.sql
-│   │   ├── 00002_venue_catalog.sql
-│   │   ├── 00003_bookings_sessions_queue.sql
-│   │   ├── 00004_payments_loyalty_ai.sql
-│   │   └── 00005_rls_policies.sql
-│   ├── seed.sql              Demo tenant + 14 stations
-│   └── config.toml
-├── package.json
-├── tsconfig.json
-├── tailwind.config.ts
-├── next.config.mjs
-└── .env.example
+â”œâ”€â”€ src/
+â”‚   â”œâ”€â”€ app/
+â”‚   â”‚   â”œâ”€â”€ (auth)/           Auth pages (login, signup, verify)
+â”‚   â”‚   â”œâ”€â”€ (dashboard)/      Dashboard pages (requires auth)
+â”‚   â”‚   â”œâ”€â”€ auth/             OAuth callback + signout routes
+â”‚   â”‚   â”œâ”€â”€ layout.tsx        Root layout (RTL/LTR, dark theme)
+â”‚   â”‚   â”œâ”€â”€ page.tsx          Landing
+â”‚   â”‚   â””â”€â”€ globals.css       Tailwind + theme tokens
+â”‚   â”œâ”€â”€ components/
+â”‚   â”‚   â”œâ”€â”€ ui/               shadcn primitives
+â”‚   â”‚   â”œâ”€â”€ auth/             LoginForm, SignupForm, VerifyOtpForm
+â”‚   â”‚   â””â”€â”€ ...
+â”‚   â”œâ”€â”€ lib/
+â”‚   â”‚   â”œâ”€â”€ supabase/         client.ts, server.ts, middleware.ts, admin.ts
+â”‚   â”‚   â”œâ”€â”€ validators/       Zod schemas
+â”‚   â”‚   â”œâ”€â”€ utils/            cn, formatMoney, formatDuration, normalizePhone
+â”‚   â”‚   â””â”€â”€ auth.ts           Server auth helpers (getAuthContext, requireRole)
+â”‚   â”œâ”€â”€ types/
+â”‚   â”‚   â””â”€â”€ database.ts       Generated Supabase types
+â”‚   â””â”€â”€ middleware.ts         Session refresh + route protection
+â”œâ”€â”€ supabase/
+â”‚   â”œâ”€â”€ migrations/
+â”‚   â”‚   â”œâ”€â”€ 00001_core_tenancy.sql
+â”‚   â”‚   â”œâ”€â”€ 00002_venue_catalog.sql
+â”‚   â”‚   â”œâ”€â”€ 00003_bookings_sessions_queue.sql
+â”‚   â”‚   â”œâ”€â”€ 00004_payments_loyalty_ai.sql
+â”‚   â”‚   â””â”€â”€ 00005_rls_policies.sql
+â”‚   â”œâ”€â”€ seed.sql              Demo tenant + 14 stations
+â”‚   â””â”€â”€ config.toml
+â”œâ”€â”€ package.json
+â”œâ”€â”€ tsconfig.json
+â”œâ”€â”€ tailwind.config.ts
+â”œâ”€â”€ next.config.mjs
+â””â”€â”€ .env.example
 ```
 
 ---
 
-## 🔐 Security model (RLS)
+## ðŸ” Security model (RLS)
 
 Every tenant-scoped table has policies that enforce:
 
@@ -201,29 +201,29 @@ Policies live in `supabase/migrations/00005_rls_policies.sql`.
 
 ---
 
-## 🧪 Smoke test
+## ðŸ§ª Smoke test
 
 After step 6:
 
-1. Go to http://localhost:3000 → see landing
-2. Click **Get Started** → fill signup form → submit
+1. Go to http://localhost:3000 â†’ see landing
+2. Click **Get Started** â†’ fill signup form â†’ submit
 3. Check the local Inbucket (http://localhost:54324) for the confirmation email
-4. Confirm → sign in → land on `/dashboard`
-5. Check Supabase Studio (http://localhost:54323) → `profiles` table → your row exists (auto-created by trigger)
+4. Confirm â†’ sign in â†’ land on `/dashboard`
+5. Check Supabase Studio (http://localhost:54323) â†’ `profiles` table â†’ your row exists (auto-created by trigger)
 
 ---
 
-## 📦 Next session — what to ask for
+## ðŸ“¦ Next session â€” what to ask for
 
 To continue:
 
-> "Continue to Phase 2 — build the real-time station grid, booking flow, and queue system"
+> "Continue to Phase 2 â€” build the real-time station grid, booking flow, and queue system"
 
 Or jump ahead:
 
-> "Skip to Phase 3 — Moyasar payments with Apple Pay"
-> "Skip to Phase 4 — AI WhatsApp agent"
+> "Skip to Phase 3 â€” Moyasar payments with Apple Pay"
+> "Skip to Phase 4 â€” AI WhatsApp agent"
 
 ---
 
-Built for serious entertainment venues in Saudi Arabia & the GCC. 🇸🇦
+Built for serious entertainment venues in Saudi Arabia & the GCC. ðŸ‡¸ðŸ‡¦
