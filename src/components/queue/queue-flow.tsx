@@ -11,14 +11,27 @@ import { createClient } from '@/lib/supabase/client';
 import type { PublicVenueState } from '@/lib/venue';
 import type { CustomerQueueTicket, QueueableGameType } from '@/lib/queue';
 import { cn, formatDuration, formatMoney } from '@/lib/utils';
-import { Loader2, Wallet, Ticket, Users, Radio } from 'lucide-react';
+import { Loader2, Wallet, Ticket, Users, Radio, Tag, X } from 'lucide-react';
 import {
   getQueuePriceAction,
   joinQueueAction,
   cancelMyTicketAction,
   getMyTicketsAction,
+  previewQueueOfferAction,
 } from '@/app/(dashboard)/dashboard/queue/actions';
 import { useT } from '@/i18n/context';
+
+type OfferPreview = {
+  applied: boolean;
+  offerNameEn?: string;
+  offerNameAr?: string;
+  discountType?: string;
+  discountCents: number;
+  freeMinutes: number;
+  doublePoints: boolean;
+  finalAmountCents: number;
+  reason?: string;
+};
 
 interface QueueFlowProps {
   branchId: string;
@@ -236,6 +249,12 @@ function JoinQueueCard({
   const [pricePending, startPrice] = useTransition();
   const [joinPending, startJoin] = useTransition();
 
+  // Offer state
+  const [promoInput, setPromoInput] = useState('');
+  const [activeCode, setActiveCode] = useState<string | null>(null);
+  const [offerPreview, setOfferPreview] = useState<OfferPreview | null>(null);
+  const [offerPending, startOffer] = useTransition();
+
   const effectiveDuration = useMemo(() => {
     if (showCustomDuration) {
       const n = Number.parseInt(customDuration, 10);
@@ -247,6 +266,7 @@ function JoinQueueCard({
   useEffect(() => {
     if (!expanded || !effectiveDuration) {
       setPrice(null);
+      setOfferPreview(null);
       return;
     }
     startPrice(async () => {
@@ -260,13 +280,45 @@ function JoinQueueCard({
     });
   }, [expanded, effectiveDuration, gameType.id]);
 
-  const insufficientFunds = price !== null && walletBalance < price;
-  const canJoin = !!effectiveDuration && price !== null && !insufficientFunds && !joinPending;
+  // Preview offer whenever price or active code changes
+  useEffect(() => {
+    if (!price || !effectiveDuration) {
+      setOfferPreview(null);
+      return;
+    }
+    startOffer(async () => {
+      const res = await previewQueueOfferAction({
+        gameTypeId: gameType.id,
+        durationMinutes: effectiveDuration,
+        code: activeCode ?? undefined,
+      });
+      setOfferPreview(res as OfferPreview);
+    });
+  }, [price, effectiveDuration, gameType.id, activeCode]);
+
+  const finalPrice = offerPreview?.applied ? offerPreview.finalAmountCents : price;
+  const insufficientFunds = finalPrice !== null && walletBalance < finalPrice;
+  const canJoin = !!effectiveDuration && price !== null && finalPrice !== null && !insufficientFunds && !joinPending;
+
+  const handleApplyCode = () => {
+    if (!promoInput.trim()) return;
+    setActiveCode(promoInput.trim().toUpperCase());
+  };
+
+  const handleRemoveCode = () => {
+    setActiveCode(null);
+    setPromoInput('');
+  };
 
   const handleJoin = () => {
     if (!effectiveDuration || price === null) return;
     startJoin(async () => {
-      const res = await joinQueueAction({ gameTypeId: gameType.id, playerCount, durationMinutes: effectiveDuration });
+      const res = await joinQueueAction({
+        gameTypeId: gameType.id,
+        playerCount,
+        durationMinutes: effectiveDuration,
+        offerCode: activeCode ?? undefined,
+      });
       if (!res.ok) {
         toast.error(res.error === 'insufficient_funds' ? 'Insufficient wallet credit' : res.error);
         return;
@@ -274,6 +326,8 @@ function JoinQueueCard({
       toast.success(t('queue.joinSuccess', { number: String(res.ticketNumber) }));
       onJoined(res.balanceCents);
       setExpanded(false);
+      setActiveCode(null);
+      setPromoInput('');
     });
   };
 
@@ -376,12 +430,104 @@ function JoinQueueCard({
             </div>
           ) : null}
 
-          {insufficientFunds && price !== null && (
+          {/* Auto-offer banner */}
+          {!activeCode && offerPreview?.applied && !offerPending && (() => {
+            const name = locale === 'ar'
+              ? (offerPreview.offerNameAr ?? offerPreview.offerNameEn ?? '')
+              : (offerPreview.offerNameEn ?? '');
+            return (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 flex items-center gap-2">
+                <span className="text-base" aria-hidden>🎉</span>
+                <p className="text-xs text-emerald-400 font-medium">
+                  {offerPreview.discountCents > 0
+                    ? t('offers.autoOfferBanner', { name, amount: formatMoney(offerPreview.discountCents) })
+                    : offerPreview.freeMinutes > 0
+                      ? t('offers.autoOfferFreeMinutes', { name, minutes: String(offerPreview.freeMinutes) })
+                      : t('offers.autoOfferDoublePoints', { name })}
+                </p>
+              </div>
+            );
+          })()}
+
+          {/* Promo code */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Tag className="h-3 w-3" />
+              {t('offers.promoCode')}
+            </div>
+            {activeCode && offerPreview?.applied ? (
+              <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1.5">
+                <span className="text-xs text-emerald-400">
+                  {t('offers.offerApplied', {
+                    name: locale === 'ar'
+                      ? (offerPreview.offerNameAr ?? offerPreview.offerNameEn ?? '')
+                      : (offerPreview.offerNameEn ?? ''),
+                  })}
+                  {offerPreview.discountCents > 0 && ` — ${t('offers.youSave', { amount: formatMoney(offerPreview.discountCents) })}`}
+                  {offerPreview.freeMinutes > 0 && ` — ${t('offers.freeMinutesAdded', { minutes: String(offerPreview.freeMinutes) })}`}
+                </span>
+                <button type="button" onClick={handleRemoveCode} className="text-muted-foreground hover:text-foreground p-0.5">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-1.5">
+                <Input
+                  value={promoInput}
+                  onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => e.key === 'Enter' && handleApplyCode()}
+                  placeholder="PROMO CODE"
+                  className="font-mono uppercase h-9 text-xs"
+                  disabled={offerPending || pricePending}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs shrink-0"
+                  disabled={!promoInput.trim() || offerPending || pricePending}
+                  onClick={handleApplyCode}
+                >
+                  {offerPending && activeCode ? <Loader2 className="h-3 w-3 animate-spin" /> : t('offers.applyCode')}
+                </Button>
+              </div>
+            )}
+            {activeCode && offerPreview && !offerPreview.applied && offerPreview.reason && (
+              <div className="flex items-center gap-1 text-xs text-destructive">
+                <span>
+                  {t('offers.codeNotApplied')}: {t(`offers.${offerPreview.reason}`) || offerPreview.reason}
+                </span>
+                <button type="button" onClick={handleRemoveCode} className="underline">
+                  {t('offers.removeCode')}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Discount breakdown */}
+          {offerPreview?.applied && offerPreview.discountCents > 0 && price !== null && (
+            <div className="rounded-lg border border-border/60 p-2.5 space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">{t('offers.basePrice')}</span>
+                <span className="font-mono">{formatMoney(price)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-emerald-400">{t('offers.discount')}</span>
+                <span className="font-mono text-emerald-400">−{formatMoney(offerPreview.discountCents)}</span>
+              </div>
+              <div className="flex justify-between text-xs font-semibold border-t border-border/40 pt-1">
+                <span>{t('offers.finalPrice')}</span>
+                <span className="font-mono text-gradient-gold">{formatMoney(offerPreview.finalAmountCents)}</span>
+              </div>
+            </div>
+          )}
+
+          {insufficientFunds && finalPrice !== null && (
             <div className="space-y-1">
               <p className="text-xs text-destructive">
                 {t('queue.insufficientCredit', {
                   current: formatMoney(walletBalance),
-                  needed: formatMoney(price),
+                  needed: formatMoney(finalPrice),
                 })}
               </p>
               <Link
@@ -395,8 +541,8 @@ function JoinQueueCard({
 
           <Button variant="gold" size="lg" className="w-full" disabled={!canJoin} onClick={handleJoin}>
             {joinPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {price !== null
-              ? t('queue.joinButton', { amount: formatMoney(price) })
+            {finalPrice !== null
+              ? t('queue.joinButton', { amount: formatMoney(finalPrice) })
               : t('queue.selectDuration')}
           </Button>
         </CardContent>

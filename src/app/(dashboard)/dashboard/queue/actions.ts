@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { computeSessionPrice } from '@/lib/cashier';
 import { joinQueue, cancelTicket, getCustomerQueueTickets } from '@/lib/queue';
+import { resolveOfferForCheckout } from '@/lib/offers';
 
 const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const DEMO_BRANCH_ID = '22222222-2222-2222-2222-222222222222';
@@ -34,13 +35,68 @@ export async function getQueuePriceAction(input: { gameTypeId: string; durationM
   }
 }
 
+const previewOfferSchema = z.object({
+  gameTypeId: z.string().uuid(),
+  durationMinutes: z.number().int().min(5).max(480),
+  code: z.string().optional(),
+});
+
+export async function previewQueueOfferAction(input: {
+  gameTypeId: string;
+  durationMinutes: number;
+  code?: string;
+}) {
+  const ctx = await requireAuth();
+
+  const parsed = previewOfferSchema.safeParse(input);
+  if (!parsed.success) {
+    return { applied: false, discountCents: 0, freeMinutes: 0, doublePoints: false, finalAmountCents: 0 };
+  }
+
+  try {
+    const amountCents = await computeSessionPrice({
+      gameTypeId: parsed.data.gameTypeId,
+      durationMinutes: parsed.data.durationMinutes,
+      branchId: DEMO_BRANCH_ID,
+    });
+
+    const result = await resolveOfferForCheckout({
+      tenantId: DEMO_TENANT_ID,
+      customerId: ctx.userId,
+      gameTypeId: parsed.data.gameTypeId,
+      amountCents,
+      code: parsed.data.code,
+    });
+
+    return {
+      applied: result.applied,
+      offerNameEn: result.offer?.nameEn,
+      offerNameAr: result.offer?.nameAr,
+      discountType: result.offer?.discountType,
+      discountCents: result.discountCents,
+      freeMinutes: result.freeMinutes,
+      doublePoints: result.doublePoints,
+      finalAmountCents: result.finalAmountCents,
+      reason: result.reason,
+    };
+  } catch {
+    return { applied: false, discountCents: 0, freeMinutes: 0, doublePoints: false, finalAmountCents: 0 };
+  }
+}
+
 const joinQueueSchema = z.object({
   gameTypeId: z.string().uuid(),
   playerCount: z.number().int().min(1).max(20),
   durationMinutes: z.number().int().min(5).max(480),
+  offerCode: z.string().optional(),
 });
 
-export async function joinQueueAction(input: { gameTypeId: string; playerCount: number; durationMinutes: number }) {
+export async function joinQueueAction(input: {
+  gameTypeId: string;
+  playerCount: number;
+  durationMinutes: number;
+  offerCode?: string;
+}) {
   const ctx = await requireAuth();
 
   const parsed = joinQueueSchema.safeParse(input);
@@ -56,6 +112,7 @@ export async function joinQueueAction(input: { gameTypeId: string; playerCount: 
       customerId: ctx.userId,
       playerCount: parsed.data.playerCount,
       durationMinutes: parsed.data.durationMinutes,
+      offerCode: parsed.data.offerCode,
     });
     return { ok: true as const, ...result };
   } catch (e) {

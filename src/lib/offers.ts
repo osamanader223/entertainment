@@ -337,6 +337,164 @@ export async function validateAndPreviewOffer(input: {
   };
 }
 
+export interface ResolveOfferResult {
+  applied: boolean;
+  offer?: {
+    id: string;
+    nameEn: string;
+    nameAr: string;
+    discountType: string;
+    discountValue: number;
+  };
+  discountCents: number;
+  freeMinutes: number;
+  doublePoints: boolean;
+  finalAmountCents: number;
+  reason?: string;
+}
+
+/**
+ * Find the best auto-apply offer for a given checkout context.
+ * Iterates all valid auto offers, picks the one with the most value
+ * (highest discountCents; ties broken by freeMinutes).
+ */
+export async function findBestAutoOffer(input: {
+  tenantId: string;
+  customerId: string;
+  gameTypeId: string;
+  amountCents: number;
+}): Promise<ResolveOfferResult | null> {
+  const admin = createAdminClient();
+
+  const { data: offersRaw } = await admin
+    .from('offers')
+    .select('*')
+    .eq('tenant_id', input.tenantId)
+    .eq('is_active', true)
+    .eq('redemption_type' as never, 'auto');
+
+  const offers = (offersRaw ?? []) as unknown as OfferRow[];
+  if (offers.length === 0) return null;
+
+  const now = new Date();
+  const tierOrder = ['silver', 'gold', 'platinum', 'vip'];
+
+  // Fetch customer tier once (reused for tier-gated offers)
+  const { data: loyalty } = await admin
+    .from('loyalty_accounts')
+    .select('tier')
+    .eq('tenant_id', input.tenantId)
+    .eq('customer_id', input.customerId)
+    .maybeSingle();
+  const customerTierIdx = tierOrder.indexOf(
+    (loyalty as unknown as { tier?: string } | null)?.tier ?? 'silver',
+  );
+
+  const candidates: Array<{ offer: OfferRow; discountCents: number; freeMinutes: number }> = [];
+
+  for (const offer of offers) {
+    if (offer.valid_from && new Date(offer.valid_from) > now) continue;
+    if (offer.valid_to && new Date(offer.valid_to) < now) continue;
+    if (offer.max_uses !== null && offer.uses_count >= offer.max_uses) continue;
+    if (offer.min_amount_cents !== null && input.amountCents < offer.min_amount_cents) continue;
+    if (offer.applies_to_game_type_id !== null && offer.applies_to_game_type_id !== input.gameTypeId) continue;
+    if (offer.min_tier) {
+      if (customerTierIdx < tierOrder.indexOf(offer.min_tier)) continue;
+    }
+    if (offer.max_uses_per_customer !== null) {
+      const { count } = await admin
+        .from('offer_redemptions' as never)
+        .select('id', { count: 'exact', head: true })
+        .eq('offer_id', offer.id)
+        .eq('customer_id', input.customerId);
+      if ((count ?? 0) >= offer.max_uses_per_customer) continue;
+    }
+
+    let discountCents = 0;
+    let freeMinutes = 0;
+    if (offer.discount_type === 'percent') {
+      discountCents = Math.round((input.amountCents * offer.discount_value) / 100);
+    } else if (offer.discount_type === 'fixed') {
+      discountCents = Math.min(offer.discount_value, input.amountCents);
+    } else if (offer.discount_type === 'free_minutes') {
+      freeMinutes = offer.discount_value;
+    }
+    candidates.push({ offer, discountCents, freeMinutes });
+  }
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) =>
+    b.discountCents !== a.discountCents
+      ? b.discountCents - a.discountCents
+      : b.freeMinutes - a.freeMinutes,
+  );
+
+  const best = candidates[0];
+  return {
+    applied: true,
+    offer: {
+      id: best.offer.id,
+      nameEn: best.offer.name,
+      nameAr: best.offer.description_ar ?? best.offer.name,
+      discountType: best.offer.discount_type,
+      discountValue: best.offer.discount_value,
+    },
+    discountCents: best.discountCents,
+    freeMinutes: best.freeMinutes,
+    doublePoints: best.offer.discount_type === 'double_points',
+    finalAmountCents: input.amountCents - best.discountCents,
+  };
+}
+
+/**
+ * Resolve which offer (if any) applies at checkout.
+ * - Code given → code takes precedence; if invalid, return full price + reason (no auto fallback).
+ * - No code → try auto offers; return best match or full price.
+ */
+export async function resolveOfferForCheckout(input: {
+  tenantId: string;
+  customerId: string;
+  gameTypeId: string;
+  amountCents: number;
+  code?: string;
+}): Promise<ResolveOfferResult> {
+  const noOffer: ResolveOfferResult = {
+    applied: false,
+    discountCents: 0,
+    freeMinutes: 0,
+    doublePoints: false,
+    finalAmountCents: input.amountCents,
+  };
+
+  if (input.code) {
+    const v = await validateAndPreviewOffer({
+      tenantId: input.tenantId,
+      customerId: input.customerId,
+      gameTypeId: input.gameTypeId,
+      amountCents: input.amountCents,
+      code: input.code,
+    });
+    if (!v.valid || !v.offer) return { ...noOffer, reason: v.reason };
+
+    const isFreeMinutes = v.offer.discountType === 'free_minutes';
+    const isDoublePoints = v.offer.discountType === 'double_points';
+    const discountCents = isFreeMinutes || isDoublePoints ? 0 : (v.discountCents ?? 0);
+    const freeMinutes = isFreeMinutes ? v.offer.discountValue : 0;
+
+    return {
+      applied: true,
+      offer: v.offer,
+      discountCents,
+      freeMinutes,
+      doublePoints: isDoublePoints,
+      finalAmountCents: input.amountCents - discountCents,
+    };
+  }
+
+  return (await findBestAutoOffer(input)) ?? noOffer;
+}
+
 export async function recordOfferRedemption(input: {
   tenantId: string;
   offerId: string;

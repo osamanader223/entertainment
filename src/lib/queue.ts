@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { creditWallet, debitWallet } from '@/lib/wallet';
 import { computeSessionPrice } from '@/lib/cashier';
 import { runLightSequence } from '@/lib/ifttt';
+import { resolveOfferForCheckout, recordOfferRedemption, type ResolveOfferResult } from '@/lib/offers';
 
 const DEFAULT_NOTIFICATION_WINDOW_MINUTES = 10;
 const DEFAULT_CANCELLATION_CREDIT_PERCENT = 100;
@@ -38,13 +39,24 @@ export interface JoinQueueArgs {
   customerId: string;
   playerCount: number;
   durationMinutes: number;
+  offerCode?: string;
 }
 
 export interface JoinQueueResult {
   ticketId: string;
   ticketNumber: number;
   paidCents: number;
+  basePriceCents: number;
   balanceCents: number;
+  appliedOffer?: {
+    nameEn: string;
+    nameAr: string;
+    discountType: string;
+    discountCents: number;
+    freeMinutes: number;
+    doublePoints: boolean;
+  };
+  offerNotAppliedReason?: string;
 }
 
 /**
@@ -59,10 +71,21 @@ export async function joinQueue({
   customerId,
   playerCount,
   durationMinutes,
+  offerCode,
 }: JoinQueueArgs): Promise<JoinQueueResult> {
   const admin = createAdminClient();
 
-  const priceCents = await computeSessionPrice({ gameTypeId, durationMinutes, branchId });
+  const basePriceCents = await computeSessionPrice({ gameTypeId, durationMinutes, branchId });
+
+  // Resolve offer (code takes precedence over auto; invalid code → full price)
+  const offerResult: ResolveOfferResult = await resolveOfferForCheckout({
+    tenantId,
+    customerId,
+    gameTypeId,
+    amountCents: basePriceCents,
+    code: offerCode,
+  });
+  const chargedCents = offerResult.finalAmountCents;
 
   // Wallet debit is atomic (RPC) and validated first so we don't record a
   // payment/ticket if the customer can't actually cover the charge.
@@ -71,7 +94,7 @@ export async function joinQueue({
     const debit = await debitWallet({
       tenantId,
       customerId,
-      amountCents: priceCents,
+      amountCents: chargedCents,
       kind: 'debit_queue',
       reason: 'Queue ticket',
       referenceType: 'queue_ticket',
@@ -92,7 +115,7 @@ export async function joinQueue({
       branch_id: branchId,
       customer_id: customerId,
       purpose: 'queue_hold',
-      amount_cents: priceCents,
+      amount_cents: chargedCents,
       currency: 'SAR',
       provider: 'manual',
       method: 'wallet',
@@ -118,7 +141,7 @@ export async function joinQueue({
       ticket_number: ticketNumber,
       status: 'waiting',
       held_payment_id: payment.id,
-      paid_amount_cents: priceCents,
+      paid_amount_cents: chargedCents,
       paid_from: 'wallet',
     })
     .select('id')
@@ -134,14 +157,39 @@ export async function joinQueue({
     action: 'queue.joined',
     entity_type: 'queue_ticket',
     entity_id: ticket.id,
-    after: { ticket_number: ticketNumber, paid_amount_cents: priceCents },
+    after: { ticket_number: ticketNumber, paid_amount_cents: chargedCents },
   });
+
+  // Record offer redemption after ticket is confirmed
+  if (offerResult.applied && offerResult.offer) {
+    // TODO(double_points): apply 2× loyalty multiplier when points are calculated for this session.
+    // TODO(free_minutes_queue): extra minutes from the offer apply when staff seats this ticket;
+    // seatTicket() should add offerResult.freeMinutes to planned_duration_seconds at that point.
+    await recordOfferRedemption({
+      tenantId,
+      offerId: offerResult.offer.id,
+      customerId,
+      discountCents: offerResult.discountCents,
+    });
+  }
 
   return {
     ticketId: ticket.id,
     ticketNumber,
-    paidCents: priceCents,
+    paidCents: chargedCents,
+    basePriceCents,
     balanceCents,
+    appliedOffer: offerResult.applied && offerResult.offer
+      ? {
+          nameEn: offerResult.offer.nameEn,
+          nameAr: offerResult.offer.nameAr,
+          discountType: offerResult.offer.discountType,
+          discountCents: offerResult.discountCents,
+          freeMinutes: offerResult.freeMinutes,
+          doublePoints: offerResult.doublePoints,
+        }
+      : undefined,
+    offerNotAppliedReason: !offerResult.applied && offerCode ? offerResult.reason : undefined,
   };
 }
 
