@@ -31,8 +31,10 @@ export async function listOffersAction() {
   }
 }
 
-const createOfferSchema = z.object({
-  code: z.string().min(1).max(32).optional().default(''),
+// Base shape — all fields, code is optional/nullable (no min(1) here).
+// superRefine enforces code-required only when redemptionType === 'code'.
+const offerBaseSchema = z.object({
+  code: z.string().max(32).optional().nullable(),
   nameEn: z.string().min(1).max(120),
   nameAr: z.string().min(1).max(120),
   descriptionEn: z.string().max(500).optional().nullable(),
@@ -50,6 +52,20 @@ const createOfferSchema = z.object({
   isActive: z.boolean(),
 });
 
+// Create: code required when redemptionType === 'code'
+const createOfferSchema = offerBaseSchema.superRefine((data, ctx) => {
+  if (data.redemptionType === 'code' && (!data.code || data.code.trim().length === 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['code'],
+      message: 'Promo code is required for code-based offers',
+    });
+  }
+});
+
+// Update: all fields optional; partial() only works on ZodObject, so use base schema
+const updateOfferSchema = offerBaseSchema.partial();
+
 export async function createOfferAction(raw: unknown) {
   try {
     const ctx = await requireAdminCtx();
@@ -64,7 +80,7 @@ export async function createOfferAction(raw: unknown) {
 export async function updateOfferAction(offerId: string, raw: unknown) {
   try {
     const ctx = await requireAdminCtx();
-    const input = createOfferSchema.partial().parse(raw);
+    const input = updateOfferSchema.parse(raw);
     await updateOffer(offerId, DEMO_TENANT_ID, input, ctx.userId);
     return { ok: true as const };
   } catch (err) {

@@ -62,10 +62,16 @@ export function OfferForm({ mode, initial, gameTypes, onSave, onCancel }: OfferF
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Client-side guard: code required for code-based offers
+    if (redemptionType === 'code' && !code.trim()) {
+      alert(t('admin.offerCode') + ' is required');
+      return;
+    }
     setPending(true);
     try {
       const ok = await onSave({
-        code,
+        // auto offers send null so the DB stores NULL (no customer-facing code needed)
+        code: redemptionType === 'code' ? code.trim().toUpperCase() : null,
         nameEn,
         nameAr,
         descriptionEn: descEn || null,

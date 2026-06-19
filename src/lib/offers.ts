@@ -37,7 +37,7 @@ export async function listOffers(tenantId: string): Promise<OfferRow[]> {
 
 export interface CreateOfferInput {
   tenantId: string;
-  code: string;
+  code?: string | null;
   nameAr: string;
   nameEn: string;
   descriptionAr?: string | null;
@@ -59,10 +59,10 @@ export interface CreateOfferInput {
 export async function createOffer(input: CreateOfferInput): Promise<{ offerId: string }> {
   const admin = createAdminClient();
 
-  // Uppercase and validate code for code-based offers
+  // code is required for code-based offers, null for auto offers
   const code = input.redemptionType === 'code'
-    ? input.code.toUpperCase().trim()
-    : (input.code?.trim() || `AUTO_${Date.now()}`).toUpperCase();
+    ? input.code?.toUpperCase().trim() ?? ''
+    : (input.code?.trim() ? input.code.trim().toUpperCase() : null);
 
   if (input.redemptionType === 'code' && !code) {
     throw new Error('Promo code is required for code-based offers');
@@ -123,7 +123,7 @@ export async function updateOffer(
   if (patch.descriptionEn !== undefined) update.description = patch.descriptionEn;
   if (patch.descriptionEn !== undefined) update.description_en = patch.descriptionEn;
   if (patch.descriptionAr !== undefined) update.description_ar = patch.descriptionAr;
-  if (patch.code !== undefined) update.code = patch.code.toUpperCase().trim();
+  if (patch.code !== undefined) update.code = patch.code ? patch.code.toUpperCase().trim() : null;
   if (patch.discountType !== undefined) update.discount_type = patch.discountType;
   if (patch.discountValue !== undefined) update.discount_value = patch.discountValue;
   if (patch.redemptionType !== undefined) update.redemption_type = patch.redemptionType;
