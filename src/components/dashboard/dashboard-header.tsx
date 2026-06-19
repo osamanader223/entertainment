@@ -2,16 +2,17 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { LogOut, LayoutDashboard, Calendar, Users, Settings, CreditCard } from 'lucide-react';
+import { LogOut, LayoutDashboard, Calendar, Users, Settings, CreditCard, ShieldAlert } from 'lucide-react';
 import { useT } from '@/i18n/context';
 import { LanguageToggle } from '@/components/language-toggle';
 
 interface DashboardHeaderProps {
   userName: string | null;
   isStaff: boolean;
+  isAdmin?: boolean;
 }
 
-export function DashboardHeader({ userName, isStaff }: DashboardHeaderProps) {
+export function DashboardHeader({ userName, isStaff, isAdmin }: DashboardHeaderProps) {
   const { t } = useT();
 
   return (
@@ -41,6 +42,11 @@ export function DashboardHeader({ userName, isStaff }: DashboardHeaderProps) {
           <NavLink href="/dashboard/settings" icon={<Settings className="h-4 w-4" />}>
             {t('nav.settings')}
           </NavLink>
+          {isAdmin && (
+            <NavLink href="/admin" icon={<ShieldAlert className="h-4 w-4" />}>
+              {t('admin.title')}
+            </NavLink>
+          )}
         </nav>
 
         <div className="flex items-center gap-3">
