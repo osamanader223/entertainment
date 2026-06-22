@@ -27,11 +27,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: '/admin', label: d.admin.home, icon: LayoutDashboard, exact: true },
     { href: '/admin/offers', label: d.admin.offers, icon: Tag },
     { href: '/admin/pricing', label: d.admin.pricing, icon: DollarSign },
+    { href: '/admin/staff', label: d.admin.staff, icon: Users },
+    { href: '/admin/stations', label: d.admin.stations, icon: Monitor },
   ];
 
   const comingSoonItems = [
-    { label: d.admin.stations, icon: Monitor },
-    { label: d.admin.staff, icon: Users },
     { label: d.admin.analytics, icon: BarChart3 },
   ];
 
