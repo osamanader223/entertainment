@@ -42,6 +42,9 @@ interface BookingConfirmation {
     doublePoints: boolean;
   };
   offerNotAppliedReason?: string;
+  pointsAwarded: number;
+  tierUp: boolean;
+  newTier: string;
 }
 
 type OfferPreview = {
@@ -164,6 +167,9 @@ export function BookingFlow({ branchCode, initialWalletBalanceCents, initial }: 
         referenceCode: res.referenceCode,
         appliedOffer: res.appliedOffer,
         offerNotAppliedReason: res.offerNotAppliedReason,
+        pointsAwarded: res.pointsAwarded,
+        tierUp: res.tierUp,
+        newTier: res.newTier,
       });
       toast.success(t('booking.bookingConfirmedToast'), {
         icon: <CheckCircle2 className="h-4 w-4" />,
@@ -295,6 +301,18 @@ export function BookingFlow({ branchCode, initialWalletBalanceCents, initial }: 
                   <ConfirmationRow label={t('booking.newBalance')} value={formatMoney(confirmation.balanceCents)} />
                   <ConfirmationRow label={t('booking.reference')} value={confirmation.referenceCode} mono />
                 </div>
+                {confirmation.pointsAwarded > 0 && (
+                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 space-y-1">
+                    <p className="text-sm text-emerald-400 font-semibold">
+                      {t('loyalty.youEarnedPoints', { points: confirmation.pointsAwarded.toLocaleString() })} 🎉
+                    </p>
+                    {confirmation.tierUp && (
+                      <p className="text-xs text-gold-400 font-medium">
+                        {t('loyalty.youReachedTier', { tier: t(`loyalty.tier.${confirmation.newTier}`) })}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {confirmation.offerNotAppliedReason && (
                   <p className="text-xs text-muted-foreground">
                     {t('offers.codeNotApplied')}: {t(`offers.${confirmation.offerNotAppliedReason}`) || confirmation.offerNotAppliedReason}

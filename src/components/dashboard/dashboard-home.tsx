@@ -77,7 +77,8 @@ export function DashboardHomeContent({
           icon={<Trophy className="h-5 w-5" />}
           label={t('dashboard.loyaltyPoints')}
           value={loyaltyPoints.toLocaleString()}
-          hint={`${t('dashboard.tier')}: ${tier.toUpperCase()}`}
+          hint={`${t('dashboard.tier')}: ${t(`loyalty.tier.${tier}`)}`}
+          href="/dashboard/loyalty"
         />
         <StatCard
           icon={<Activity className="h-5 w-5" />}

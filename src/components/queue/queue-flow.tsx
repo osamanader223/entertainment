@@ -324,6 +324,12 @@ function JoinQueueCard({
         return;
       }
       toast.success(t('queue.joinSuccess', { number: String(res.ticketNumber) }));
+      if (res.pointsAwarded > 0) {
+        toast.success(`${t('loyalty.youEarnedPoints', { points: res.pointsAwarded.toLocaleString() })} 🎉`);
+      }
+      if (res.tierUp) {
+        toast.success(t('loyalty.youReachedTier', { tier: t(`loyalty.tier.${res.newTier}`) }));
+      }
       onJoined(res.balanceCents);
       setExpanded(false);
       setActiveCode(null);

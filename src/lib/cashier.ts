@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { normalizePhone } from '@/lib/utils';
 import { debitWallet } from '@/lib/wallet';
 import { runLightSequence } from '@/lib/ifttt';
+import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 
 export interface CashierCustomer {
   id: string;
@@ -199,6 +200,13 @@ export async function startCashierSession({
     branchId,
   });
 
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('walk_in_created')
+    .eq('id', customerId)
+    .maybeSingle();
+  const isRealCustomer = !!profile && !profile.walk_in_created;
+
   // Wallet debit is atomic (RPC) and validated first so we don't record a
   // payment/session if the customer can't actually cover the charge.
   if (paymentMethod === 'wallet') {
@@ -261,6 +269,20 @@ export async function startCashierSession({
     entity_id: session.id,
     after: { station_id: stationId, customer_id: customerId, amount_cents: amountCents },
   });
+
+  // Cash or wallet both earn points on the amount charged, but only for real
+  // (non-walk-in) customer accounts.
+  if (isRealCustomer) {
+    await awardPoints({
+      tenantId,
+      customerId,
+      points: computePointsEarned(amountCents, false),
+      reason: 'cashier_session',
+      referenceType: 'session',
+      referenceId: session.id,
+      actorId,
+    });
+  }
 
   void fireStartLightSequence(station.code, station.game_type_id, branchId);
 

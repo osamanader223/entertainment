@@ -72,7 +72,10 @@ export interface Database {
           tenant_id: string;
           code: string;
           display_name: string;
+          address_line: string | null;
           city: string | null;
+          phone: string | null;
+          whatsapp_number: string | null;
           opens_at: string;
           closes_at: string;
           status: Database['public']['Enums']['branch_status'];
@@ -158,7 +161,7 @@ export interface Database {
           points_balance: number;
           lifetime_points_earned: number;
           lifetime_points_redeemed: number;
-          tier: 'silver' | 'gold' | 'platinum' | 'vip';
+          tier: Database['public']['Enums']['loyalty_tier'];
           current_streak_days: number;
           longest_streak_days: number;
           last_visit_date: string | null;
@@ -169,6 +172,23 @@ export interface Database {
         };
         Insert: Partial<Database['public']['Tables']['loyalty_accounts']['Row']>;
         Update: Partial<Database['public']['Tables']['loyalty_accounts']['Row']>;
+        Relationships: [];
+      };
+      loyalty_ledger: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          account_id: string;
+          delta_points: number;
+          reason: string;
+          reference_type: string | null;
+          reference_id: string | null;
+          metadata: Json | null;
+          created_at: string;
+          created_by: string | null;
+        };
+        Insert: never;
+        Update: never;
         Relationships: [];
       };
       game_types: {
@@ -461,6 +481,18 @@ export interface Database {
         };
         Returns: Json;
       };
+      loyalty_award_points: {
+        Args: {
+          p_tenant_id: string;
+          p_customer_id: string;
+          p_points: number;
+          p_reason: string;
+          p_reference_type?: string | null;
+          p_reference_id?: string | null;
+          p_actor_id?: string | null;
+        };
+        Returns: Json;
+      };
     };
     Enums: {
       app_role: 'super_admin' | 'tenant_admin' | 'manager' | 'staff' | 'customer';
@@ -495,6 +527,7 @@ export interface Database {
       payment_method: 'mada' | 'visa' | 'mastercard' | 'apple_pay' | 'stc_pay' | 'cash' | 'wallet';
       payment_status: 'initiated' | 'pending' | 'authorized' | 'captured' | 'failed' | 'refunded' | 'partially_refunded' | 'cancelled';
       payment_purpose: 'deposit' | 'session' | 'extension' | 'top_up' | 'reward_purchase' | 'queue_hold' | 'wallet_topup' | 'other';
+      loyalty_tier: 'silver' | 'gold' | 'platinum' | 'vip' | 'diamond';
     };
   };
 }

@@ -4,6 +4,7 @@ import { creditWallet, debitWallet } from '@/lib/wallet';
 import { computeSessionPrice } from '@/lib/cashier';
 import { runLightSequence } from '@/lib/ifttt';
 import { resolveOfferForCheckout, recordOfferRedemption, type ResolveOfferResult } from '@/lib/offers';
+import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 
 const DEFAULT_NOTIFICATION_WINDOW_MINUTES = 10;
 const DEFAULT_CANCELLATION_CREDIT_PERCENT = 100;
@@ -57,6 +58,9 @@ export interface JoinQueueResult {
     doublePoints: boolean;
   };
   offerNotAppliedReason?: string;
+  pointsAwarded: number;
+  tierUp: boolean;
+  newTier: string;
 }
 
 /**
@@ -162,7 +166,6 @@ export async function joinQueue({
 
   // Record offer redemption after ticket is confirmed
   if (offerResult.applied && offerResult.offer) {
-    // TODO(double_points): apply 2× loyalty multiplier when points are calculated for this session.
     // TODO(free_minutes_queue): extra minutes from the offer apply when staff seats this ticket;
     // seatTicket() should add offerResult.freeMinutes to planned_duration_seconds at that point.
     await recordOfferRedemption({
@@ -172,6 +175,19 @@ export async function joinQueue({
       discountCents: offerResult.discountCents,
     });
   }
+
+  // Queue is prepaid here, so points are awarded on join (not on seatTicket) —
+  // referenceType/referenceId key off the ticket so it can't double-award.
+  const points = computePointsEarned(chargedCents, offerResult.doublePoints);
+  const award = await awardPoints({
+    tenantId,
+    customerId,
+    points,
+    reason: 'queue_session',
+    referenceType: 'queue_ticket',
+    referenceId: ticket.id,
+    actorId: customerId,
+  });
 
   return {
     ticketId: ticket.id,
@@ -190,6 +206,9 @@ export async function joinQueue({
         }
       : undefined,
     offerNotAppliedReason: !offerResult.applied && offerCode ? offerResult.reason : undefined,
+    pointsAwarded: award.pointsAwarded,
+    tierUp: award.tierUp,
+    newTier: award.newTier,
   };
 }
 

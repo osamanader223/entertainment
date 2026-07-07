@@ -298,7 +298,7 @@ export async function validateAndPreviewOffer(input: {
 
   // Tier check (requires fetching loyalty account)
   if (offer.min_tier) {
-    const tierOrder = ['silver', 'gold', 'platinum', 'vip'];
+    const tierOrder = ['silver', 'gold', 'platinum', 'diamond'];
     const minIdx = tierOrder.indexOf(offer.min_tier);
     const { data: loyalty } = await admin
       .from('loyalty_accounts')
@@ -377,7 +377,7 @@ export async function findBestAutoOffer(input: {
   if (offers.length === 0) return null;
 
   const now = new Date();
-  const tierOrder = ['silver', 'gold', 'platinum', 'vip'];
+  const tierOrder = ['silver', 'gold', 'platinum', 'diamond'];
 
   // Fetch customer tier once (reused for tier-gated offers)
   const { data: loyalty } = await admin

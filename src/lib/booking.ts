@@ -4,6 +4,7 @@ import { debitWallet } from '@/lib/wallet';
 import { computeSessionPrice } from '@/lib/cashier';
 import { runLightSequence } from '@/lib/ifttt';
 import { resolveOfferForCheckout, recordOfferRedemption } from '@/lib/offers';
+import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 import type { Database } from '@/types/database';
 
 type GameCategory = Database['public']['Enums']['game_category'];
@@ -36,6 +37,9 @@ export interface CreateCustomerBookingResult {
   referenceCode: string;
   appliedOffer?: AppliedOfferInfo;
   offerNotAppliedReason?: string;
+  pointsAwarded: number;
+  tierUp: boolean;
+  newTier: string;
 }
 
 /**
@@ -183,8 +187,6 @@ export async function createCustomerBooking({
 
   // Record offer redemption after booking is confirmed
   if (offerResult.applied && offerResult.offer) {
-    // TODO(double_points): when loyalty points are calculated for this session,
-    // check offer_redemptions for this booking and apply the 2× multiplier.
     await recordOfferRedemption({
       tenantId,
       offerId: offerResult.offer.id,
@@ -194,6 +196,18 @@ export async function createCustomerBooking({
       discountCents: offerResult.discountCents,
     });
   }
+
+  // Points are earned on the PAID amount (after discount) — only double_points doubles it.
+  const points = computePointsEarned(chargedCents, offerResult.doublePoints);
+  const award = await awardPoints({
+    tenantId,
+    customerId,
+    points,
+    reason: 'booking_completed',
+    referenceType: 'session',
+    referenceId: session.id,
+    actorId: customerId,
+  });
 
   void fireStartLightSequence(station.code, gameType.category, branchId);
 
@@ -215,6 +229,9 @@ export async function createCustomerBooking({
         }
       : undefined,
     offerNotAppliedReason: !offerResult.applied && offerCode ? offerResult.reason : undefined,
+    pointsAwarded: award.pointsAwarded,
+    tierUp: award.tierUp,
+    newTier: award.newTier,
   };
 }
 

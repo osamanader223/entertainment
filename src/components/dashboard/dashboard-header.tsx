@@ -30,7 +30,7 @@ export function DashboardHeader({ userName, isStaff, isAdmin }: DashboardHeaderP
             {t('nav.bookings')}
           </NavLink>
           {isStaff && (
-            <NavLink href="/dashboard/customers" icon={<Users className="h-4 w-4" />}>
+            <NavLink href="/admin/customers" icon={<Users className="h-4 w-4" />}>
               {t('nav.customers')}
             </NavLink>
           )}

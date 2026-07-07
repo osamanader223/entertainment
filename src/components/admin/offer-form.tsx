@@ -203,7 +203,7 @@ export function OfferForm({ mode, initial, gameTypes, onSave, onCancel }: OfferF
                 <option value="silver">Silver</option>
                 <option value="gold">Gold</option>
                 <option value="platinum">Platinum</option>
-                <option value="vip">VIP</option>
+                <option value="diamond">Diamond</option>
               </select>
             </FormField>
           </div>

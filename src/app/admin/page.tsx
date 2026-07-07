@@ -5,6 +5,7 @@ import { getServerDict } from '@/i18n/server';
 import { formatMoney } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { DollarSign, Activity, Clock, Tag, Users } from 'lucide-react';
+import type { LoyaltyTier } from '@/lib/loyalty';
 
 export const metadata = { title: 'Admin — Home' };
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,7 @@ export default async function AdminHomePage() {
     { data: activeOffers },
     { count: totalCustomers },
     { data: activityRaw },
+    { data: loyaltyTiersRaw },
   ] = await Promise.all([
     admin
       .from('payments')
@@ -72,6 +74,10 @@ export default async function AdminHomePage() {
       .eq('tenant_id', DEMO_TENANT_ID)
       .order('occurred_at', { ascending: false })
       .limit(15),
+    admin
+      .from('loyalty_accounts')
+      .select('tier')
+      .eq('tenant_id', DEMO_TENANT_ID),
   ]);
 
   const todayRevenueCents = (paymentsToday ?? []).reduce(
@@ -84,6 +90,13 @@ export default async function AdminHomePage() {
   const customerCount = totalCustomers ?? 0;
 
   const activityLog = (activityRaw ?? []) as unknown as ActivityLogEntry[];
+
+  const tierCounts: Record<LoyaltyTier, number> = { silver: 0, gold: 0, platinum: 0, diamond: 0 };
+  for (const row of loyaltyTiersRaw ?? []) {
+    const tier = (row as unknown as { tier: string }).tier;
+    if (tier === 'vip') tierCounts.diamond += 1;
+    else if (tier in tierCounts) tierCounts[tier as LoyaltyTier] += 1;
+  }
 
   const stats = [
     { icon: DollarSign, label: d.admin.todayRevenue, value: formatMoney(todayRevenueCents), gold: true },
@@ -115,6 +128,21 @@ export default async function AdminHomePage() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      {/* Loyalty tier breakdown */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold">{d.loyalty.tiersTitle}</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {(['silver', 'gold', 'platinum', 'diamond'] as const).map((tier) => (
+            <Card key={tier} className="glass">
+              <CardContent className="p-5">
+                <div className="text-xs text-muted-foreground">{d.loyalty.tier[tier]}</div>
+                <div className="mt-2 text-2xl font-bold tabular-nums">{tierCounts[tier]}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
 
       {/* Recent activity */}

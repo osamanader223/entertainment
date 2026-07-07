@@ -6,7 +6,7 @@ import { LanguageToggle } from '@/components/language-toggle';
 import { Button } from '@/components/ui/button';
 import {
   LayoutDashboard, Tag, DollarSign, Monitor, Users, BarChart3,
-  ArrowLeft, LogOut,
+  Wallet, Settings, ArrowLeft, LogOut, UserSquare2,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -14,26 +14,30 @@ export const dynamic = 'force-dynamic';
 const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
 const ADMIN_ROLES = ['manager', 'tenant_admin'] as const;
+// Staff can see customers (they serve them) — every other admin section stays
+// manager+ and is enforced independently by each page's own role check.
+const SHELL_ROLES = ['staff', 'manager', 'tenant_admin'] as const;
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireAuth('/login');
   const isAdmin = userHasAnyRole(ctx, [...ADMIN_ROLES]) || ctx.isSuperAdmin;
-  if (!isAdmin) redirect('/dashboard');
+  const canEnterShell = userHasAnyRole(ctx, [...SHELL_ROLES]) || ctx.isSuperAdmin;
+  if (!canEnterShell) redirect('/dashboard');
 
   const { d } = await getServerDict();
   const userName = ctx.profile?.full_name || ctx.email || ctx.phone || null;
 
   const navItems = [
-    { href: '/admin', label: d.admin.home, icon: LayoutDashboard, exact: true },
-    { href: '/admin/offers', label: d.admin.offers, icon: Tag },
-    { href: '/admin/pricing', label: d.admin.pricing, icon: DollarSign },
-    { href: '/admin/staff', label: d.admin.staff, icon: Users },
-    { href: '/admin/stations', label: d.admin.stations, icon: Monitor },
-  ];
-
-  const comingSoonItems = [
-    { label: d.admin.analytics, icon: BarChart3 },
-  ];
+    { href: '/admin', label: d.admin.home, icon: LayoutDashboard, exact: true, staffVisible: false },
+    { href: '/admin/analytics', label: d.admin.analytics, icon: BarChart3, staffVisible: false },
+    { href: '/admin/customers', label: d.admin.customers, icon: UserSquare2, staffVisible: true },
+    { href: '/admin/offers', label: d.admin.offers, icon: Tag, staffVisible: false },
+    { href: '/admin/pricing', label: d.admin.pricing, icon: DollarSign, staffVisible: false },
+    { href: '/admin/stations', label: d.admin.stations, icon: Monitor, staffVisible: false },
+    { href: '/admin/staff', label: d.admin.staff, icon: Users, staffVisible: false },
+    { href: '/admin/wallet', label: d.admin.wallet, icon: Wallet, staffVisible: false },
+    { href: '/admin/settings', label: d.admin.settings, icon: Settings, staffVisible: false },
+  ].filter((item) => isAdmin || item.staffVisible);
 
   // Suppress unused variable warning
   void DEMO_TENANT_ID;
@@ -70,19 +74,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 <item.icon className="h-4 w-4 shrink-0" />
                 {item.label}
               </Link>
-            ))}
-
-            <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-muted-foreground/60">
-              {d.admin.comingSoon}
-            </div>
-            {comingSoonItems.map((item) => (
-              <div
-                key={item.label}
-                className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground/40 cursor-not-allowed select-none"
-              >
-                <item.icon className="h-4 w-4 shrink-0" />
-                {item.label}
-              </div>
             ))}
           </nav>
 
