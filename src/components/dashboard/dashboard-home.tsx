@@ -4,10 +4,12 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { DashboardLiveGrid } from '@/components/venue/dashboard-live-grid';
+import { OffersShowcase } from '@/components/offers/offers-showcase';
 import { Activity, Trophy, Wallet, ExternalLink, CalendarPlus, Ticket } from 'lucide-react';
 import { formatMoney } from '@/lib/utils';
 import { useT } from '@/i18n/context';
 import type { PublicVenueState } from '@/lib/venue';
+import type { CustomerOfferCard, LockedCustomerOfferCard } from '@/lib/offers';
 
 interface DashboardHomeProps {
   userName: string;
@@ -18,6 +20,10 @@ interface DashboardHomeProps {
   branchCode: string;
   initialState?: PublicVenueState;
   canEndSessions: boolean;
+  offersEligible: CustomerOfferCard[];
+  offersLocked: LockedCustomerOfferCard[];
+  offersNextTier: string | null;
+  offersPointsToNextTier: number | null;
 }
 
 export function DashboardHomeContent({
@@ -29,6 +35,10 @@ export function DashboardHomeContent({
   branchCode,
   initialState,
   canEndSessions,
+  offersEligible,
+  offersLocked,
+  offersNextTier,
+  offersPointsToNextTier,
 }: DashboardHomeProps) {
   const { t } = useT();
 
@@ -86,6 +96,13 @@ export function DashboardHomeContent({
           value={`${streakDays} ${t('dashboard.days')}`}
         />
       </div>
+
+      <OffersShowcase
+        eligible={offersEligible}
+        locked={offersLocked}
+        nextTier={offersNextTier}
+        pointsToNextTier={offersPointsToNextTier}
+      />
 
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">

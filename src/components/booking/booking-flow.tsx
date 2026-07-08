@@ -24,6 +24,7 @@ interface BookingFlowProps {
   customerId: string;
   initialWalletBalanceCents: number;
   initial?: PublicVenueState;
+  initialOfferCode?: string;
 }
 
 interface BookingConfirmation {
@@ -61,7 +62,7 @@ type OfferPreview = {
 
 const DURATION_PRESETS = [30, 60, 90] as const;
 
-export function BookingFlow({ branchCode, initialWalletBalanceCents, initial }: BookingFlowProps) {
+export function BookingFlow({ branchCode, initialWalletBalanceCents, initial, initialOfferCode }: BookingFlowProps) {
   const { t, locale } = useT();
   const [selectedStation, setSelectedStation] = useState<PublicStation | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
@@ -71,9 +72,10 @@ export function BookingFlow({ branchCode, initialWalletBalanceCents, initial }: 
   const [price, setPrice] = useState<number | null>(null);
   const [pricePending, startPrice] = useTransition();
 
-  // Offer state
-  const [promoInput, setPromoInput] = useState('');
-  const [activeCode, setActiveCode] = useState<string | null>(null);
+  // Offer state — pre-filled from a "Use now" deep link (?offer=CODE) if present.
+  const initialCode = initialOfferCode?.trim().toUpperCase() || '';
+  const [promoInput, setPromoInput] = useState(initialCode);
+  const [activeCode, setActiveCode] = useState<string | null>(initialCode || null);
   const [offerPreview, setOfferPreview] = useState<OfferPreview | null>(null);
   const [offerPending, startOffer] = useTransition();
 
@@ -202,8 +204,10 @@ export function BookingFlow({ branchCode, initialWalletBalanceCents, initial }: 
               onSelect={(station) => {
                 setSelectedStation(station);
                 setConfirmation(null);
-                setActiveCode(null);
-                setPromoInput('');
+                // Note: the active promo code (including one pre-filled via a
+                // "Use now" deep link) is intentionally preserved across
+                // station changes — the existing preview effect re-validates
+                // it against the new station's game type automatically.
               }}
             />
           </CardContent>

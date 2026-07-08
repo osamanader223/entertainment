@@ -537,3 +537,143 @@ export async function recordOfferRedemption(input: {
     after: { discount_applied_cents: input.discountCents } as never,
   });
 }
+
+const CUSTOMER_TIER_ORDER = ['silver', 'gold', 'platinum', 'diamond'];
+
+export interface CustomerOfferCard {
+  id: string;
+  nameEn: string;
+  nameAr: string;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
+  code: string | null;
+  redemptionType: 'code' | 'auto';
+  discountType: 'percent' | 'fixed' | 'free_minutes' | 'double_points';
+  discountValue: number;
+  appliesToGameTypeName: string | null;
+  appliesToGameTypeNameAr: string | null;
+  minAmountCents: number | null;
+  minTier: string | null;
+  validTo: string | null;
+  remainingUsesForCustomer: number | null;
+}
+
+export interface LockedCustomerOfferCard extends CustomerOfferCard {
+  requiredTier: string;
+}
+
+export interface CustomerOffersResult {
+  eligible: CustomerOfferCard[];
+  locked: LockedCustomerOfferCard[];
+}
+
+/**
+ * List offers for a customer's dashboard, split into eligible (usable now)
+ * vs locked (tier-gated teasers). Offers that are simply exhausted, expired,
+ * not yet started, or already maxed-out per-customer are dropped entirely —
+ * only tier is treated as an enticing "not yet, but soon" reason to show.
+ *
+ * Note: the `offers` table has a single `name` column (no name_ar) — only
+ * descriptions are bilingual — so nameEn/nameAr both resolve to the same
+ * string here (matches the underlying schema, not a bug).
+ */
+export async function getCustomerOffers(input: {
+  tenantId: string;
+  customerId: string;
+}): Promise<CustomerOffersResult> {
+  const admin = createAdminClient();
+  const now = new Date();
+
+  const { data: offersRaw, error } = await admin
+    .from('offers')
+    .select('*')
+    .eq('tenant_id', input.tenantId)
+    .eq('is_active', true);
+  if (error) throw error;
+  const offers = (offersRaw ?? []) as unknown as OfferRow[];
+  if (offers.length === 0) return { eligible: [], locked: [] };
+
+  let candidates = offers.filter((o) => {
+    if (o.valid_from && new Date(o.valid_from) > now) return false;
+    if (o.valid_to && new Date(o.valid_to) < now) return false;
+    if (o.max_uses !== null && o.uses_count >= o.max_uses) return false;
+    return true;
+  });
+  if (candidates.length === 0) return { eligible: [], locked: [] };
+
+  // Per-customer usage cap: drop offers this customer has already maxed out.
+  const cappedOfferIds = candidates.filter((o) => o.max_uses_per_customer !== null).map((o) => o.id);
+  const usedCountMap = new Map<string, number>();
+  if (cappedOfferIds.length > 0) {
+    const { data: redemptionsRaw } = await admin
+      .from('offer_redemptions' as never)
+      .select('offer_id')
+      .eq('customer_id', input.customerId)
+      .in('offer_id', cappedOfferIds);
+    for (const r of (redemptionsRaw ?? []) as unknown as Array<{ offer_id: string }>) {
+      usedCountMap.set(r.offer_id, (usedCountMap.get(r.offer_id) ?? 0) + 1);
+    }
+  }
+  candidates = candidates.filter((o) => {
+    if (o.max_uses_per_customer === null) return true;
+    return (usedCountMap.get(o.id) ?? 0) < o.max_uses_per_customer;
+  });
+  if (candidates.length === 0) return { eligible: [], locked: [] };
+
+  const { data: loyaltyRaw } = await admin
+    .from('loyalty_accounts')
+    .select('tier')
+    .eq('tenant_id', input.tenantId)
+    .eq('customer_id', input.customerId)
+    .maybeSingle();
+  const customerTier = (loyaltyRaw as unknown as { tier?: string } | null)?.tier ?? 'silver';
+  const customerTierIdx = CUSTOMER_TIER_ORDER.indexOf(customerTier);
+
+  const gameTypeIds = [...new Set(
+    candidates.map((o) => o.applies_to_game_type_id).filter((id): id is string => !!id),
+  )];
+  const { data: gameTypesRaw } = gameTypeIds.length
+    ? await admin.from('game_types').select('id, display_name_en, display_name_ar').in('id', gameTypeIds)
+    : { data: [] };
+  const gameTypeMap = new Map(
+    ((gameTypesRaw ?? []) as unknown as Array<{ id: string; display_name_en: string; display_name_ar: string }>)
+      .map((g) => [g.id, g]),
+  );
+
+  const eligible: CustomerOfferCard[] = [];
+  const locked: LockedCustomerOfferCard[] = [];
+
+  for (const o of candidates) {
+    const gt = o.applies_to_game_type_id ? gameTypeMap.get(o.applies_to_game_type_id) : undefined;
+    const usedCount = usedCountMap.get(o.id) ?? 0;
+
+    const card: CustomerOfferCard = {
+      id: o.id,
+      nameEn: o.name,
+      nameAr: o.name,
+      descriptionEn: o.description_en ?? o.description,
+      descriptionAr: o.description_ar ?? o.description,
+      code: o.code,
+      redemptionType: o.redemption_type as 'code' | 'auto',
+      discountType: o.discount_type,
+      discountValue: o.discount_value,
+      appliesToGameTypeName: gt?.display_name_en ?? null,
+      appliesToGameTypeNameAr: gt?.display_name_ar ?? null,
+      minAmountCents: o.min_amount_cents,
+      minTier: o.min_tier,
+      validTo: o.valid_to,
+      remainingUsesForCustomer: o.max_uses_per_customer !== null ? Math.max(0, o.max_uses_per_customer - usedCount) : null,
+    };
+
+    if (o.min_tier) {
+      const minIdx = CUSTOMER_TIER_ORDER.indexOf(o.min_tier);
+      if (minIdx > customerTierIdx) {
+        locked.push({ ...card, requiredTier: o.min_tier });
+        continue;
+      }
+    }
+    eligible.push(card);
+  }
+
+  return { eligible, locked };
+}

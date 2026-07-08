@@ -10,8 +10,13 @@ const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const DEMO_BRANCH_ID = '22222222-2222-2222-2222-222222222222';
 const DEMO_BRANCH_CODE = 'JED-01';
 
-export default async function BookPage() {
+export default async function BookPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ offer?: string }>;
+}) {
   const ctx = await requireAuth('/dashboard/book');
+  const { offer } = await searchParams;
 
   const walletBalanceCents = await getWalletBalance(DEMO_TENANT_ID, ctx.userId);
   const branchId = await resolveBranchByCode(DEMO_BRANCH_CODE);
@@ -25,6 +30,7 @@ export default async function BookPage() {
       customerId={ctx.userId}
       initialWalletBalanceCents={walletBalanceCents}
       initial={initialState ?? undefined}
+      initialOfferCode={offer}
     />
   );
 }
