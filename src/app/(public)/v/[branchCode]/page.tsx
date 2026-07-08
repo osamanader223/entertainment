@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { resolveBranchByCode, getPublicVenueState } from '@/lib/venue';
 import { PublicLiveGrid } from './actions';
+import { AmbientBackground } from '@/components/venue/ambient-background';
 import { MapPin } from 'lucide-react';
 import { getServerDict } from '@/i18n/server';
 
@@ -35,6 +36,7 @@ export default async function PublicVenuePage({ params }: PageProps) {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+      <AmbientBackground />
       <header className="space-y-3">
         <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
           <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />

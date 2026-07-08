@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { PublicVenueState, PublicStation, PublicQueueGroup } from '@/lib/venue';
 import { useLiveVenueState } from '@/hooks/useLiveVenueState';
 import { StationCard } from './station-card';
@@ -66,13 +67,19 @@ export function LiveStationGrid({
     <div className="space-y-8">
       <SummaryBar state={state} isStale={isStale} />
 
-      {groups.map(({ meta, stations }) => {
+      {groups.map(({ meta, stations }, groupIndex) => {
         const gameTypeName = locale === 'ar'
           ? (meta.game_type_name_ar || meta.game_type_name_en)
           : meta.game_type_name_en;
 
         return (
-          <section key={meta.game_type_code}>
+          <motion.section
+            key={meta.game_type_code}
+            layout
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: groupIndex * 0.05 }}
+          >
             <div className="flex items-end justify-between mb-3">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <span className="text-xl" aria-hidden>
@@ -101,16 +108,19 @@ export function LiveStationGrid({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {stations.map((s) => (
-                <StationCard
-                  key={s.id}
-                  station={s}
-                  onClick={s.status === 'available' ? () => onStationSelect?.(s) : undefined}
-                  onConfirmEnd={onStationConfirmEnd}
-                />
-              ))}
+              <AnimatePresence mode="popLayout">
+                {stations.map((s, i) => (
+                  <StationCard
+                    key={s.id}
+                    station={s}
+                    index={i}
+                    onClick={s.status === 'available' ? () => onStationSelect?.(s) : undefined}
+                    onConfirmEnd={onStationConfirmEnd}
+                  />
+                ))}
+              </AnimatePresence>
             </div>
-          </section>
+          </motion.section>
         );
       })}
     </div>
@@ -145,7 +155,20 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: 'eme
     tone === 'emerald' ? 'text-emerald-300' : tone === 'amber' ? 'text-amber-300' : 'text-muted-foreground';
   return (
     <div className="flex items-baseline gap-1.5">
-      <span className={cn('text-2xl font-bold tabular-nums', color)}>{value}</span>
+      <span className={cn('relative inline-grid text-2xl font-bold tabular-nums overflow-hidden', color)}>
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span
+            key={value}
+            initial={{ y: -20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 20, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+            className="col-start-1 row-start-1"
+          >
+            {value}
+          </motion.span>
+        </AnimatePresence>
+      </span>
       <span className="text-xs text-muted-foreground">{label}</span>
     </div>
   );
