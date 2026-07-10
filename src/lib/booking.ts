@@ -5,6 +5,7 @@ import { computeSessionPrice } from '@/lib/cashier';
 import { runLightSequence } from '@/lib/ifttt';
 import { resolveOfferForCheckout, recordOfferRedemption } from '@/lib/offers';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
+import { fireNotification } from '@/lib/notifications';
 import type { Database } from '@/types/database';
 
 type GameCategory = Database['public']['Enums']['game_category'];
@@ -210,6 +211,7 @@ export async function createCustomerBooking({
   });
 
   void fireStartLightSequence(station.code, gameType.category, branchId);
+  void fireBookingConfirmedNotification({ tenantId, customerId, bookingId: booking.id, station, durationMinutes, referenceCode: booking.reference_code });
 
   return {
     sessionId: session.id,
@@ -247,4 +249,32 @@ async function fireStartLightSequence(
   if (!branch?.ifttt_webhook_key) return;
 
   void runLightSequence({ code: stationCode, gameCategory }, 'START', branch.ifttt_webhook_key);
+}
+
+/** Fire-and-forget: WhatsApp booking-confirmed notification. */
+async function fireBookingConfirmedNotification(input: {
+  tenantId: string;
+  customerId: string;
+  bookingId: string;
+  station: { display_name: string };
+  durationMinutes: number;
+  referenceCode: string;
+}): Promise<void> {
+  try {
+    fireNotification({
+      tenantId: input.tenantId,
+      customerId: input.customerId,
+      templateCode: 'booking_confirmed',
+      params: {
+        stationName: input.station.display_name,
+        startTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+        durationMinutes: String(input.durationMinutes),
+        referenceCode: input.referenceCode,
+      },
+      referenceType: 'booking',
+      referenceId: input.bookingId,
+    });
+  } catch (err) {
+    console.error('[booking] fireBookingConfirmedNotification failed', err);
+  }
 }

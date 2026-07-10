@@ -35,6 +35,8 @@ export interface Database {
           phone_lookup_consent: boolean;
           claimed_at: string | null;
           last_seen_at: string | null;
+          whatsapp_window_expires_at: string | null;
+          whatsapp_opted_out: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -442,6 +444,38 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['activity_log']['Row']>;
         Relationships: [];
       };
+      notifications: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          customer_id: string | null;
+          channel: Database['public']['Enums']['notification_channel'];
+          template_code: string | null;
+          payload: Json;
+          rendered_body: string | null;
+          status: Database['public']['Enums']['notification_status'];
+          provider_message_id: string | null;
+          send_after: string;
+          sent_at: string | null;
+          delivered_at: string | null;
+          read_at: string | null;
+          error: string | null;
+          retries: number;
+          reference_type: string | null;
+          reference_id: string | null;
+          category: 'utility' | 'marketing' | 'service' | 'authentication' | null;
+          was_free: boolean;
+          estimated_cost_cents: number;
+          created_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['notifications']['Row']> & {
+          tenant_id: string;
+          channel: Database['public']['Enums']['notification_channel'];
+          payload: Json;
+        };
+        Update: Partial<Database['public']['Tables']['notifications']['Row']>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -528,6 +562,8 @@ export interface Database {
       payment_status: 'initiated' | 'pending' | 'authorized' | 'captured' | 'failed' | 'refunded' | 'partially_refunded' | 'cancelled';
       payment_purpose: 'deposit' | 'session' | 'extension' | 'top_up' | 'reward_purchase' | 'queue_hold' | 'wallet_topup' | 'other';
       loyalty_tier: 'silver' | 'gold' | 'platinum' | 'vip' | 'diamond';
+      notification_channel: 'whatsapp' | 'sms' | 'email' | 'push' | 'in_app';
+      notification_status: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
     };
   };
 }

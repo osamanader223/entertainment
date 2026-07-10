@@ -1,6 +1,7 @@
 import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { runLightSequence } from '@/lib/ifttt';
+import { fireNotification } from '@/lib/notifications';
 
 export interface EndActiveSessionResult {
   sessionId: string | null;
@@ -28,7 +29,7 @@ export async function endActiveSessionForStation({
 
   const { data: session, error: sessionError } = await admin
     .from('sessions')
-    .select('id, started_at, total_paused_seconds')
+    .select('id, customer_id, started_at, total_paused_seconds')
     .eq('station_id', stationId)
     .eq('tenant_id', tenantId)
     .in('status', ['active', 'paused'])
@@ -65,6 +66,7 @@ export async function endActiveSessionForStation({
   });
 
   void fireEndLightSequence(stationId, branchId);
+  void fireSessionEndedNotification(tenantId, session.id, session.customer_id);
 
   return { sessionId: session.id, alreadyEnded: false };
 }
@@ -89,4 +91,50 @@ async function fireEndLightSequence(stationId: string, branchId: string): Promis
   if (!gameType) return;
 
   void runLightSequence({ code: station.code, gameCategory: gameType.category }, 'END', branch.ifttt_webhook_key);
+}
+
+/**
+ * Fire-and-forget: WhatsApp "session ended, here's what you earned" notification.
+ * NOTE: points for this session were awarded earlier (at booking/queue-join/cashier
+ * start time, not here) — this looks up the loyalty_ledger entry keyed to this
+ * session to report what was earned. Queue-seated sessions award points keyed to
+ * the queue_ticket instead, so pointsEarned will read 0 for those (a known gap,
+ * not something this notification introduces).
+ */
+async function fireSessionEndedNotification(
+  tenantId: string,
+  sessionId: string,
+  customerId: string | null
+): Promise<void> {
+  if (!customerId) return;
+  try {
+    const admin = createAdminClient();
+
+    const [{ data: profile }, { data: ledgerEntry }, { data: loyaltyAccount }] = await Promise.all([
+      admin.from('profiles').select('full_name').eq('id', customerId).maybeSingle(),
+      admin
+        .from('loyalty_ledger')
+        .select('delta_points')
+        .eq('reference_type', 'session')
+        .eq('reference_id', sessionId)
+        .gt('delta_points', 0)
+        .maybeSingle(),
+      admin.from('loyalty_accounts').select('points_balance').eq('tenant_id', tenantId).eq('customer_id', customerId).maybeSingle(),
+    ]);
+
+    fireNotification({
+      tenantId,
+      customerId,
+      templateCode: 'session_ended_points',
+      params: {
+        name: profile?.full_name ?? '',
+        pointsEarned: String(ledgerEntry?.delta_points ?? 0),
+        pointsBalance: String(loyaltyAccount?.points_balance ?? 0),
+      },
+      referenceType: 'session',
+      referenceId: sessionId,
+    });
+  } catch (err) {
+    console.error('[sessions] fireSessionEndedNotification failed', err);
+  }
 }

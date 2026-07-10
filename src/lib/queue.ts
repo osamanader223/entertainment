@@ -5,6 +5,7 @@ import { computeSessionPrice } from '@/lib/cashier';
 import { runLightSequence } from '@/lib/ifttt';
 import { resolveOfferForCheckout, recordOfferRedemption, type ResolveOfferResult } from '@/lib/offers';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
+import { fireNotification } from '@/lib/notifications';
 
 const DEFAULT_NOTIFICATION_WINDOW_MINUTES = 10;
 const DEFAULT_CANCELLATION_CREDIT_PERCENT = 100;
@@ -288,8 +289,9 @@ export async function callNextTicket({
     after: { ticket_number: ticket.ticket_number, notification_expires_at: notificationExpiresAt },
   });
 
-  // TODO(Phase 4): trigger a WhatsApp "your table is ready" notification to
-  // ticket.customer_id here, using notificationExpiresAt as the deadline.
+  if (ticket.customer_id) {
+    void fireQueueYouAreNextNotification(tenantId, ticket.customer_id, ticket.id, ticket.ticket_number, windowMinutes);
+  }
 
   return {
     ticketId: ticket.id,
@@ -404,6 +406,7 @@ export async function seatTicket({
   });
 
   void fireStartLightSequence(station.code, gameType.category, branchId);
+  void fireAlmostYourTurnNotifications(tenantId, branchId, station.game_type_id);
 
   return { sessionId: session.id, ticketNumber: ticket.ticket_number };
 }
@@ -749,4 +752,81 @@ async function fireStartLightSequence(
   if (!branch?.ifttt_webhook_key) return;
 
   void runLightSequence({ code: stationCode, gameCategory }, 'START', branch.ifttt_webhook_key);
+}
+
+/** Fire-and-forget: WhatsApp "your table is ready" notification for a just-called ticket. */
+async function fireQueueYouAreNextNotification(
+  tenantId: string,
+  customerId: string,
+  ticketId: string,
+  ticketNumber: number,
+  windowMinutes: number
+): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    const { data: profile } = await admin.from('profiles').select('full_name').eq('id', customerId).maybeSingle();
+
+    fireNotification({
+      tenantId,
+      customerId,
+      templateCode: 'queue_you_are_next',
+      params: {
+        name: profile?.full_name ?? '',
+        ticketNumber: String(ticketNumber),
+        windowMinutes: String(windowMinutes),
+      },
+      referenceType: 'queue_ticket',
+      referenceId: ticketId,
+    });
+  } catch (err) {
+    console.error('[queue] fireQueueYouAreNextNotification failed', err);
+  }
+}
+
+/**
+ * Fire-and-forget: after a ticket is seated, notify the next 1-2 waiting
+ * tickets for that game type that their turn is close. Idempotency in
+ * sendNotification prevents re-sending on every subsequent seat.
+ */
+async function fireAlmostYourTurnNotifications(
+  tenantId: string,
+  branchId: string,
+  gameTypeId: string
+): Promise<void> {
+  try {
+    const admin = createAdminClient();
+
+    const [{ data: nextTickets }, { data: gameType }] = await Promise.all([
+      admin
+        .from('queue_tickets')
+        .select('id, customer_id')
+        .eq('branch_id', branchId)
+        .eq('game_type_id', gameTypeId)
+        .eq('status', 'waiting')
+        .order('is_vip', { ascending: false })
+        .order('ticket_number', { ascending: true })
+        .limit(2),
+      admin.from('game_types').select('display_name_en, display_name_ar').eq('id', gameTypeId).maybeSingle(),
+    ]);
+
+    if (!nextTickets || nextTickets.length === 0) return;
+    const gameName = gameType?.display_name_ar ?? gameType?.display_name_en ?? '';
+
+    for (let i = 0; i < nextTickets.length; i++) {
+      const t = nextTickets[i];
+      if (!t.customer_id) continue;
+      const { data: profile } = await admin.from('profiles').select('full_name').eq('id', t.customer_id).maybeSingle();
+
+      fireNotification({
+        tenantId,
+        customerId: t.customer_id,
+        templateCode: 'queue_almost_your_turn',
+        params: { name: profile?.full_name ?? '', peopleAhead: String(i), gameName },
+        referenceType: 'queue_ticket',
+        referenceId: t.id,
+      });
+    }
+  } catch (err) {
+    console.error('[queue] fireAlmostYourTurnNotifications failed', err);
+  }
 }

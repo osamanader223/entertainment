@@ -6,7 +6,7 @@ import { LanguageToggle } from '@/components/language-toggle';
 import { Button } from '@/components/ui/button';
 import {
   LayoutDashboard, Tag, DollarSign, Monitor, Users, BarChart3,
-  Wallet, Settings, ArrowLeft, LogOut, UserSquare2,
+  Wallet, Settings, ArrowLeft, LogOut, UserSquare2, MessageCircle,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -36,6 +36,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: '/admin/stations', label: d.admin.stations, icon: Monitor, staffVisible: false },
     { href: '/admin/staff', label: d.admin.staff, icon: Users, staffVisible: false },
     { href: '/admin/wallet', label: d.admin.wallet, icon: Wallet, staffVisible: false },
+    { href: '/admin/messages', label: d.admin.messages, icon: MessageCircle, staffVisible: false },
     { href: '/admin/settings', label: d.admin.settings, icon: Settings, staffVisible: false },
   ].filter((item) => isAdmin || item.staffVisible);
 
