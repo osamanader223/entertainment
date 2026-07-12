@@ -179,7 +179,10 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
         paymentMethod,
       });
       if (res.error) {
-        toast.error(res.error);
+        // 'station_reserved' means an upcoming reservation on this station
+        // would collide with this walk-in's duration — surface that clearly
+        // rather than a raw error code.
+        toast.error(res.error === 'station_reserved' ? t('scheduling.station_reserved') : res.error);
         return;
       }
 

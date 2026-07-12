@@ -7,12 +7,13 @@ export type TemplateCode =
   | 'queue_almost_your_turn'
   | 'booking_confirmed'
   | 'session_ending_soon'
-  | 'session_ended_points';
+  | 'session_ended_points'
+  | 'booking_reminder';
 
 /**
  * Template configuration: maps named params to positional order (Meta fills
  * {{1}}, {{2}}, ... in this order) and declares the message category.
- * These 5 names must be submitted to Meta for template approval exactly as
+ * These names must be submitted to Meta for template approval exactly as
  * written here, with body variables in this exact order.
  */
 const TEMPLATE_CONFIG: Record<TemplateCode, { paramOrder: string[]; category: 'utility' }> = {
@@ -21,6 +22,7 @@ const TEMPLATE_CONFIG: Record<TemplateCode, { paramOrder: string[]; category: 'u
   booking_confirmed: { paramOrder: ['stationName', 'startTime', 'durationMinutes', 'referenceCode'], category: 'utility' },
   session_ending_soon: { paramOrder: ['name', 'minutesLeft'], category: 'utility' },
   session_ended_points: { paramOrder: ['name', 'pointsEarned', 'pointsBalance'], category: 'utility' },
+  booking_reminder: { paramOrder: ['name', 'stationName', 'startTime'], category: 'utility' },
 };
 
 export interface SendNotificationInput {

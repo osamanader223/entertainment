@@ -1,9 +1,8 @@
-import Link from 'next/link';
 import { requireRole } from '@/lib/auth';
 import { resolveBranchByCode, getPublicVenueState } from '@/lib/venue';
+import { getReservationBoard } from '@/lib/cashier-reservations';
 import { CashierFlow } from '@/components/cashier/cashier-flow';
 import { CashierPageHeader } from '@/components/cashier/cashier-page-header';
-import { Ticket } from 'lucide-react';
 
 export const metadata = { title: 'Cashier' };
 export const dynamic = 'force-dynamic';
@@ -24,11 +23,15 @@ export default async function CashierPage() {
     );
   }
 
-  const initialState = await getPublicVenueState(branchId);
+  const [initialState, reservations] = await Promise.all([
+    getPublicVenueState(branchId),
+    getReservationBoard(DEMO_TENANT_ID, branchId),
+  ]);
+  const upcomingReservationsCount = reservations.filter((r) => r.status !== 'in_session').length;
 
   return (
     <div className="space-y-6">
-      <CashierPageHeader />
+      <CashierPageHeader upcomingReservationsCount={upcomingReservationsCount} />
       <CashierFlow branchId={branchId} branchCode={DEMO_BRANCH_CODE} initial={initialState ?? undefined} />
     </div>
   );

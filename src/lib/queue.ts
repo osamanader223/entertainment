@@ -6,6 +6,7 @@ import { runLightSequence } from '@/lib/ifttt';
 import { resolveOfferForCheckout, recordOfferRedemption, type ResolveOfferResult } from '@/lib/offers';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 import { fireNotification } from '@/lib/notifications';
+import { isStationFreeForWindow } from '@/lib/station-overlap';
 
 const DEFAULT_NOTIFICATION_WINDOW_MINUTES = 10;
 const DEFAULT_CANCELLATION_CREDIT_PERCENT = 100;
@@ -350,6 +351,13 @@ export async function seatTicket({
   if (stationError || !station) throw new Error('Station not found');
   if (station.branch_id !== branchId) throw new Error('Station does not belong to this branch');
   if (station.status !== 'available') throw new Error('Station is not available');
+
+  // Seating this ticket must not collide with an upcoming reservation on the station.
+  const seatNow = new Date();
+  const seatWindowEnd = new Date(seatNow.getTime() + durationMinutes * 60_000);
+  if (!(await isStationFreeForWindow(stationId, seatNow.toISOString(), seatWindowEnd.toISOString()))) {
+    throw new Error('station_reserved');
+  }
 
   const { data: gameType, error: gameTypeError } = await admin
     .from('game_types')

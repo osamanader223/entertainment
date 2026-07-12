@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/session-alerts",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/booking-lifecycle",
+      "schedule": "* * * * *"
     }
   ]
 }

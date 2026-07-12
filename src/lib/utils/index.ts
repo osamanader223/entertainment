@@ -43,3 +43,20 @@ export function formatDate(d: Date | string, locale = 'en-SA') {
 }
 
 export const isRTL = (locale?: string) => (locale ?? 'ar').startsWith('ar');
+
+/**
+ * Translate a `${prefix}.${reason}` dictionary key, falling back to the raw
+ * reason string if no translation exists. Needed because the `t()` helper
+ * from useT() never returns a falsy value on a missing key — it returns the
+ * constructed path itself — so a plain `t(key) || reason` fallback never
+ * actually triggers.
+ */
+export function translateReason(
+  t: (path: string, vars?: Record<string, string>) => string,
+  prefix: string,
+  reason: string
+): string {
+  const key = `${prefix}.${reason}`;
+  const translated = t(key);
+  return translated === key ? reason : translated;
+}

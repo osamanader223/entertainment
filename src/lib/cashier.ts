@@ -4,6 +4,7 @@ import { normalizePhone } from '@/lib/utils';
 import { debitWallet } from '@/lib/wallet';
 import { runLightSequence } from '@/lib/ifttt';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
+import { isStationFreeForWindow } from '@/lib/station-overlap';
 
 export interface CashierCustomer {
   id: string;
@@ -193,6 +194,14 @@ export async function startCashierSession({
   if (stationError || !station) throw new Error('Station not found');
   if (station.branch_id !== branchId) throw new Error('Station does not belong to this branch');
   if (station.status !== 'available') throw new Error('Station is not available');
+
+  // A walk-in that would run into an upcoming reservation is blocked here —
+  // the cashier should pick another station or a shorter duration.
+  const walkInNow = new Date();
+  const walkInWindowEnd = new Date(walkInNow.getTime() + durationMinutes * 60_000);
+  if (!(await isStationFreeForWindow(stationId, walkInNow.toISOString(), walkInWindowEnd.toISOString()))) {
+    throw new Error('station_reserved');
+  }
 
   const amountCents = await computeSessionPrice({
     gameTypeId: station.game_type_id,

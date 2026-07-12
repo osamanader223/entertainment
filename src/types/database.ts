@@ -302,6 +302,12 @@ export interface Database {
           cancelled_at: string | null;
           cancelled_reason: string | null;
           created_by: string | null;
+          booking_mode: 'instant' | 'scheduled';
+          customer_present: boolean;
+          present_marked_at: string | null;
+          no_show_at: string | null;
+          auto_started: boolean;
+          slot_released: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -526,6 +532,15 @@ export interface Database {
           p_actor_id?: string | null;
         };
         Returns: Json;
+      };
+      is_station_free_for_window: {
+        Args: {
+          p_station_id: string;
+          p_start: string;
+          p_end: string;
+          p_exclude_booking_id?: string | null;
+        };
+        Returns: boolean;
       };
     };
     Enums: {
