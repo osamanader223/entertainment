@@ -228,4 +228,5 @@ Or jump ahead:
 
 Built for serious entertainment venues in Saudi Arabia & the GCC. ðŸ‡¸ðŸ‡¦
 / /   d e p l o y   t r i g g e r  
+ / /   d e p l o y   t r i g g e r  
  
