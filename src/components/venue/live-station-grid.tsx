@@ -107,7 +107,7 @@ export function LiveStationGrid({
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 auto-rows-fr items-stretch">
               <AnimatePresence mode="popLayout">
                 {stations.map((s, i) => (
                   <StationCard
@@ -181,9 +181,9 @@ function SkeletonGrid() {
       {[1, 2].map((i) => (
         <div key={i}>
           <div className="h-6 w-40 rounded bg-muted/20 animate-pulse mb-3" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {[1, 2, 3, 4].map((j) => (
-              <div key={j} className="h-32 rounded-xl bg-muted/10 animate-pulse" />
+              <div key={j} className="h-40 rounded-xl bg-muted/10 animate-pulse" />
             ))}
           </div>
         </div>

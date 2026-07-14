@@ -64,22 +64,22 @@ export function StationCard({ station, onClick, onConfirmEnd, index = 0 }: Props
       whileTap={{ scale: 0.97 }}
       transition={{ type: 'spring', stiffness: 300, damping: 24, delay: Math.min(index, 8) * 0.04 }}
       className={cn(
-        'group relative w-full text-left rounded-xl border p-4',
+        'group relative w-full h-full min-h-[168px] flex flex-col text-start rounded-xl border p-4',
         'glass hover:border-gold-500/40',
         statusTone.ring,
         isEnding && 'animate-gold-pulse'
       )}
     >
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-2xl leading-none" aria-hidden>
+            <span className="text-2xl leading-none shrink-0" aria-hidden>
               {station.icon ?? '🎮'}
             </span>
-            <span className="text-xs font-mono text-muted-foreground">{station.code}</span>
+            <span className="text-xs font-mono text-muted-foreground truncate">{station.code}</span>
           </div>
-          <div className="mt-2 font-semibold">{station.display_name}</div>
-          <div className="text-xs text-muted-foreground mt-0.5">{gameTypeName}</div>
+          <div className="mt-2 font-semibold truncate">{station.display_name}</div>
+          <div className="text-xs text-muted-foreground mt-0.5 truncate">{gameTypeName}</div>
         </div>
 
         <AnimatePresence mode="wait">
@@ -108,7 +108,7 @@ export function StationCard({ station, onClick, onConfirmEnd, index = 0 }: Props
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="mt-3 text-2xl font-bold tabular-nums tracking-tight"
+            className="mt-auto pt-3 text-2xl font-bold tabular-nums tracking-tight"
           >
             {isEnding ? (
               <span className="text-gold-400 animate-pulse">{t('station.endingNow')}</span>
@@ -161,7 +161,7 @@ export function StationCard({ station, onClick, onConfirmEnd, index = 0 }: Props
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="mt-3 text-sm text-emerald-400/80"
+            className="mt-auto pt-3 text-sm text-emerald-400/80"
           >
             {t('station.readyToPlay')}
           </motion.div>

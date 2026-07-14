@@ -8,6 +8,7 @@ export interface StationAdmin {
   gameTypeId: string;
   gameTypeName: string;
   gameTypeNameAr: string;
+  gameTypeCategory: string;
   status: string;
   isActive: boolean;
   positionX: number | null;
@@ -38,9 +39,9 @@ export async function listStations(tenantId: string, branchId: string): Promise<
   }>;
 
   const gtIds = [...new Set(rows.map((r) => r.game_type_id))];
-  const { data: gts } = await admin.from('game_types').select('id, display_name_en, display_name_ar').in('id', gtIds);
+  const { data: gts } = await admin.from('game_types').select('id, display_name_en, display_name_ar, category').in('id', gtIds);
   const gtMap = new Map(
-    ((gts ?? []) as unknown as Array<{ id: string; display_name_en: string; display_name_ar: string }>)
+    ((gts ?? []) as unknown as Array<{ id: string; display_name_en: string; display_name_ar: string; category: string }>)
       .map((g) => [g.id, g]),
   );
 
@@ -51,6 +52,7 @@ export async function listStations(tenantId: string, branchId: string): Promise<
     gameTypeId: r.game_type_id,
     gameTypeName: gtMap.get(r.game_type_id)?.display_name_en ?? '',
     gameTypeNameAr: gtMap.get(r.game_type_id)?.display_name_ar ?? '',
+    gameTypeCategory: gtMap.get(r.game_type_id)?.category ?? 'other',
     status: r.status,
     isActive: r.is_active,
     positionX: r.position_x,

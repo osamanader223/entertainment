@@ -10,7 +10,9 @@ import {
   cancelScheduledBooking,
   getCustomerUpcomingBookings,
   getAvailableStationsForWindow,
+  getGameTypeSlots,
 } from '@/lib/booking';
+import { getVenueDateForNow, SLOT_MINUTES } from '@/lib/slots';
 import { resolveOfferForCheckout } from '@/lib/offers';
 import { getQueueableGameTypes } from '@/lib/queue';
 
@@ -205,6 +207,63 @@ export async function createScheduledBookingAction(input: {
     return { ok: true as const, ...result };
   } catch (e) {
     return { ok: false as const, error: e instanceof Error ? e.message : 'Failed to create reservation' };
+  }
+}
+
+// =====================================================================
+// CINEMA-STYLE SLOT GRID
+// =====================================================================
+
+/** Venue hours + today's venue-day, so the date strip can default correctly. */
+export async function getBookingContextAction() {
+  await requireAuth();
+  try {
+    const admin = createAdminClient();
+    const [{ data: branch, error: branchError }, { data: tenant, error: tenantError }] = await Promise.all([
+      admin.from('branches').select('opens_at, closes_at').eq('id', DEMO_BRANCH_ID).maybeSingle(),
+      admin.from('tenants').select('timezone').eq('id', DEMO_TENANT_ID).maybeSingle(),
+    ]);
+    if (branchError || !branch) throw branchError ?? new Error('Branch not found');
+    if (tenantError || !tenant) throw tenantError ?? new Error('Tenant not found');
+
+    return {
+      ok: true as const,
+      opensAt: branch.opens_at,
+      closesAt: branch.closes_at,
+      timezone: tenant.timezone,
+      todayVenueDate: getVenueDateForNow(branch.opens_at, branch.closes_at, tenant.timezone),
+    };
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : 'Failed to load venue hours' };
+  }
+}
+
+const gameTypeSlotsSchema = z.object({
+  gameTypeId: z.string().uuid(),
+  venueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  durationMinutes: z.number().int().min(SLOT_MINUTES).max(480),
+});
+
+export async function getGameTypeSlotsAction(input: {
+  gameTypeId: string;
+  venueDate: string;
+  durationMinutes: number;
+}) {
+  await requireAuth();
+  const parsed = gameTypeSlotsSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.issues[0]?.message ?? 'Invalid input', stations: [] };
+  }
+
+  try {
+    const stations = await getGameTypeSlots({
+      tenantId: DEMO_TENANT_ID,
+      branchId: DEMO_BRANCH_ID,
+      ...parsed.data,
+    });
+    return { ok: true as const, stations };
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : 'Failed to load slots', stations: [] };
   }
 }
 

@@ -7,6 +7,15 @@ import { resolveOfferForCheckout, recordOfferRedemption } from '@/lib/offers';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 import { fireNotification } from '@/lib/notifications';
 import { isStationFreeForWindow } from '@/lib/station-overlap';
+import {
+  generateSlotsForVenueDay,
+  computeSlotAvailability,
+  getVenueDayWindow,
+  resolveVenueDateForInstant,
+  isValidSlotBoundary,
+  type SlotAvailability,
+  type BusyWindow,
+} from '@/lib/slots';
 import type { Database } from '@/types/database';
 
 const NO_SHOW_CUTOFF_MINUTES = 10;
@@ -49,6 +58,11 @@ export interface CreateCustomerBookingResult {
 }
 
 /**
+ * @deprecated The customer-facing UI now only books via slots
+ * (createScheduledBooking) — /dashboard/book no longer offers an instant
+ * path. Kept for the cashier/API surface in case something still calls it;
+ * not wired into any current UI. Do not delete without checking callers.
+ *
  * Customer self-service version of startCashierSession: validates the
  * station is free, charges the customer's wallet, opens the session, and
  * records a booking row. The sync_station_status trigger flips the station
@@ -354,6 +368,25 @@ export async function createScheduledBooking({
     .eq('id', station.game_type_id)
     .maybeSingle();
   if (gameTypeError || !gameType) throw new Error('Game type not found');
+
+  // Slot-grid alignment: must land on a :00/:30 boundary within the venue's
+  // open hours, and must not run past closing. Re-derived server-side from
+  // branch hours rather than trusted from the client.
+  const [{ data: branch, error: branchError }, { data: tenant, error: tenantError }] = await Promise.all([
+    admin.from('branches').select('opens_at, closes_at').eq('id', branchId).maybeSingle(),
+    admin.from('tenants').select('timezone').eq('id', tenantId).maybeSingle(),
+  ]);
+  if (branchError || !branch) throw new Error('Branch not found');
+  if (tenantError || !tenant) throw new Error('Tenant not found');
+
+  const venueDate = resolveVenueDateForInstant(startDate.toISOString(), branch.opens_at, branch.closes_at, tenant.timezone);
+  const { openISO, closeISO } = getVenueDayWindow(venueDate, branch.opens_at, branch.closes_at, tenant.timezone);
+  if (!isValidSlotBoundary(startDate.toISOString(), tenant.timezone) || startDate.getTime() < new Date(openISO).getTime()) {
+    throw new Error('invalid_slot');
+  }
+  if (endDate.getTime() > new Date(closeISO).getTime()) {
+    throw new Error('exceeds_closing');
+  }
 
   // OVERLAP CHECK — before charging anything.
   const isFree = await isStationFreeForWindow(stationId, startDate.toISOString(), endDate.toISOString());
@@ -825,4 +858,152 @@ export async function getAvailableStationsForWindow(input: {
     if (free) results.push({ stationId: s.id, code: s.code, displayName: s.display_name });
   }
   return results;
+}
+
+// =====================================================================
+// CINEMA-STYLE SLOT GRID — read-only slot availability for the booking UI.
+// =====================================================================
+
+async function loadVenueDayContext(tenantId: string, branchId: string) {
+  const admin = createAdminClient();
+  const [{ data: branch, error: branchError }, { data: tenant, error: tenantError }] = await Promise.all([
+    admin.from('branches').select('opens_at, closes_at').eq('id', branchId).maybeSingle(),
+    admin.from('tenants').select('timezone').eq('id', tenantId).maybeSingle(),
+  ]);
+  if (branchError || !branch) throw new Error('Branch not found');
+  if (tenantError || !tenant) throw new Error('Tenant not found');
+  return { opensAt: branch.opens_at, closesAt: branch.closes_at, timezone: tenant.timezone };
+}
+
+/** Busy windows (reservations + live sessions) for a set of stations, restricted to one venue-day window. */
+async function loadBusyWindowsByStation(
+  stationIds: string[],
+  openISO: string,
+  closeISO: string,
+): Promise<Map<string, BusyWindow[]>> {
+  const admin = createAdminClient();
+  const byStation = new Map<string, BusyWindow[]>();
+  if (stationIds.length === 0) return byStation;
+
+  const [{ data: bookingRows }, { data: sessionRows }] = await Promise.all([
+    admin
+      .from('bookings')
+      .select('station_id, scheduled_start_at, scheduled_end_at')
+      .in('station_id', stationIds)
+      .in('status', ['confirmed', 'checked_in', 'in_session'])
+      .lt('scheduled_start_at', closeISO)
+      .gt('scheduled_end_at', openISO),
+    admin
+      .from('sessions')
+      .select('station_id, started_at, ends_at')
+      .in('station_id', stationIds)
+      .in('status', ['active', 'paused']),
+  ]);
+
+  for (const b of bookingRows ?? []) {
+    if (!b.station_id || !b.scheduled_end_at) continue;
+    const arr = byStation.get(b.station_id) ?? [];
+    arr.push({ start: b.scheduled_start_at, end: b.scheduled_end_at });
+    byStation.set(b.station_id, arr);
+  }
+
+  const openMs = new Date(openISO).getTime();
+  const closeMs = new Date(closeISO).getTime();
+  for (const s of sessionRows ?? []) {
+    const startMs = new Date(s.started_at).getTime();
+    // Open-ended (still-running) sessions block from started_at onward.
+    const endMs = s.ends_at ? new Date(s.ends_at).getTime() : Number.POSITIVE_INFINITY;
+    if (startMs >= closeMs || endMs <= openMs) continue;
+    const arr = byStation.get(s.station_id) ?? [];
+    arr.push({ start: s.started_at, end: s.ends_at ?? new Date(closeMs + 1).toISOString() });
+    byStation.set(s.station_id, arr);
+  }
+
+  return byStation;
+}
+
+export interface StationSlotGrid {
+  slots: SlotAvailability[];
+  opensAt: string;
+  closesAt: string;
+}
+
+/** The slot grid for a single station on a venue-day, with availability computed. */
+export async function getStationSlots(input: {
+  tenantId: string;
+  branchId: string;
+  stationId: string;
+  venueDate: string;
+  durationMinutes: number;
+}): Promise<StationSlotGrid> {
+  const { opensAt, closesAt, timezone } = await loadVenueDayContext(input.tenantId, input.branchId);
+  const venueSlots = generateSlotsForVenueDay({ venueDate: input.venueDate, opensAt, closesAt, timezone });
+  const { openISO, closeISO } = getVenueDayWindow(input.venueDate, opensAt, closesAt, timezone);
+
+  const busyByStation = await loadBusyWindowsByStation([input.stationId], openISO, closeISO);
+
+  return {
+    slots: computeSlotAvailability({
+      slots: venueSlots,
+      durationMinutes: input.durationMinutes,
+      closesAtISO: closeISO,
+      nowISO: new Date().toISOString(),
+      busyWindows: busyByStation.get(input.stationId) ?? [],
+    }),
+    opensAt,
+    closesAt,
+  };
+}
+
+export interface GameTypeStationSlots {
+  stationId: string;
+  stationCode: string;
+  stationName: string;
+  slots: SlotAvailability[];
+}
+
+/** Slot availability across every active station of a game type, for the cinema-style booking grid. */
+export async function getGameTypeSlots(input: {
+  tenantId: string;
+  branchId: string;
+  gameTypeId: string;
+  venueDate: string;
+  durationMinutes: number;
+}): Promise<GameTypeStationSlots[]> {
+  const admin = createAdminClient();
+  const { opensAt, closesAt, timezone } = await loadVenueDayContext(input.tenantId, input.branchId);
+
+  const { data: stations, error } = await admin
+    .from('stations')
+    .select('id, code, display_name')
+    .eq('tenant_id', input.tenantId)
+    .eq('branch_id', input.branchId)
+    .eq('game_type_id', input.gameTypeId)
+    .eq('is_active', true)
+    .order('code', { ascending: true });
+  if (error) throw error;
+  if (!stations || stations.length === 0) return [];
+
+  const venueSlots = generateSlotsForVenueDay({ venueDate: input.venueDate, opensAt, closesAt, timezone });
+  const { openISO, closeISO } = getVenueDayWindow(input.venueDate, opensAt, closesAt, timezone);
+  const nowISO = new Date().toISOString();
+
+  const busyByStation = await loadBusyWindowsByStation(
+    stations.map((s) => s.id),
+    openISO,
+    closeISO,
+  );
+
+  return stations.map((s) => ({
+    stationId: s.id,
+    stationCode: s.code,
+    stationName: s.display_name,
+    slots: computeSlotAvailability({
+      slots: venueSlots,
+      durationMinutes: input.durationMinutes,
+      closesAtISO: closeISO,
+      nowISO,
+      busyWindows: busyByStation.get(s.id) ?? [],
+    }),
+  }));
 }
