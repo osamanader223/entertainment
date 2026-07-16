@@ -89,12 +89,12 @@ export function StationPicker({ branchCode, initial, selectedStationId, onSelect
             </span>
             {group.game_type_name_en}
           </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 auto-rows-fr items-stretch">
             {group.stations.map((station) => (
               <div
                 key={station.id}
                 className={cn(
-                  'rounded-xl transition-shadow',
+                  'h-full rounded-xl transition-shadow',
                   selectedStationId === station.id && 'ring-2 ring-gold-400'
                 )}
               >

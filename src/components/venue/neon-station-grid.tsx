@@ -85,7 +85,7 @@ export function NeonStationGrid({ branchCode, initial, hourlyPriceCentsByGameTyp
 
   if (!selected) {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
         {categories.map((cat) => (
           <CategoryCard
             key={cat.code}
@@ -115,7 +115,7 @@ export function NeonStationGrid({ branchCode, initial, hourlyPriceCentsByGameTyp
         <span className="text-lg font-extrabold text-[color:var(--neon-text-hi)]">{categoryName}</span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
         {selected.stations.map((s) => (
           <NeonStationCard
             key={s.id}
@@ -204,11 +204,13 @@ function NeonStationCard({
   gameTypeId?: string;
   onConfirmEnd?: (stationId: string) => void | Promise<void>;
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const isAvailable = station.status === 'available';
   const status = STATUS_META[station.status];
   const [confirmPending, setConfirmPending] = useState(false);
   const [remaining, setRemaining] = useState<string | null>(null);
+
+  const gameTypeName = locale === 'ar' ? (station.game_type_name_ar || station.game_type_name_en) : station.game_type_name_en;
 
   useEffect(() => {
     if (station.status !== 'occupied' || !station.estimated_free_at) { setRemaining(null); return; }
@@ -228,14 +230,11 @@ function NeonStationCard({
 
   return (
     <div
-      className="relative rounded-[20px] border border-[#241B39] p-4 min-h-[168px] flex flex-col"
+      className="relative rounded-[20px] border border-[#241B39] p-4 min-h-[212px] h-full flex flex-col"
       style={{ background: 'var(--neon-surface-card-2)' }}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-[10px] font-mono text-[color:var(--neon-text-lo)] truncate">{station.code}</div>
-          <div className="font-bold text-sm text-[color:var(--neon-text-hi)] truncate">{station.display_name}</div>
-        </div>
+      {/* Identity row: status badge leading, game icon trailing (mirrors automatically in RTL via flex + dir) */}
+      <div className="flex items-center justify-between gap-2">
         <span
           className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-bold border"
           style={{ background: 'rgba(6,6,10,.5)', borderColor: `${status.color}66`, color: status.color }}
@@ -243,20 +242,32 @@ function NeonStationCard({
           <span className="h-[6px] w-[6px] rounded-full" style={{ background: status.color }} />
           {t(status.labelKey)}
         </span>
+        <span className="text-lg leading-none shrink-0" aria-hidden>{station.icon ?? '🎮'}</span>
       </div>
 
-      {remaining && (
-        <div className="mt-auto pt-3 font-neon-display font-bold text-xl tabular-nums" style={{ color: 'var(--neon-magenta-soft)' }}>
-          {isEnding ? t('station.endingNow') : (
-            <>
-              {remaining}
-              <span className="ms-1.5 text-xs font-normal font-sans" style={{ color: 'var(--neon-text-lo)' }}>{t('station.remaining')}</span>
-            </>
-          )}
+      {/* The code is the visual anchor — this is what staff/customers say out loud. */}
+      <div className="mt-3 min-w-0">
+        <div className="font-neon-display font-bold text-xl tracking-wide truncate" style={{ color: 'var(--neon-cyan)' }}>
+          {station.code}
         </div>
-      )}
+        <div className="text-sm font-bold text-[color:var(--neon-text-hi)] truncate mt-0.5">{station.display_name}</div>
+        <div className="text-xs text-[color:var(--neon-text-lo)] truncate mt-0.5">{gameTypeName}</div>
+      </div>
 
-      <div className={cn(!remaining && 'mt-auto pt-3')}>
+      <div className="mt-auto pt-3 flex flex-col gap-2">
+        {remaining ? (
+          <div className="font-neon-display font-bold text-lg tabular-nums" style={{ color: 'var(--neon-magenta-soft)' }}>
+            {isEnding ? t('station.endingNow') : (
+              <>
+                {remaining}
+                <span className="ms-1.5 text-xs font-normal font-sans" style={{ color: 'var(--neon-text-lo)' }}>{t('station.remaining')}</span>
+              </>
+            )}
+          </div>
+        ) : isAvailable ? (
+          <div className="text-xs font-bold" style={{ color: 'var(--neon-cyan)' }}>{t('station.readyToPlay')}</div>
+        ) : null}
+
         {isEnding && onConfirmEnd ? (
           <button
             type="button"

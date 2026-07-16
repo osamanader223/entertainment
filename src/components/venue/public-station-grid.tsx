@@ -71,7 +71,7 @@ export function PublicStationGrid({ branchCode, initial, hourlyPriceCentsByGameT
 
   if (!state) {
     return (
-      <div className="neon-theme grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="neon-theme grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
         {[1, 2, 3, 4].map((j) => (
           <div key={j} className="h-[220px] rounded-[20px] border border-[#241B39] bg-[color:var(--neon-surface-1)] animate-pulse" />
         ))}
@@ -84,7 +84,7 @@ export function PublicStationGrid({ branchCode, initial, hourlyPriceCentsByGameT
   return (
     <div className="neon-theme">
       {!selected ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
           {categories.map((cat) => {
             const image = STATION_IMAGE_BY_CODE[cat.code];
             const availableCount = cat.stations.filter((s) => s.status === 'available').length;
@@ -148,52 +148,105 @@ export function PublicStationGrid({ branchCode, initial, hourlyPriceCentsByGameT
             </span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {selected.stations.map((s) => {
-              const status = STATUS_META[s.status];
-              const isAvailable = s.status === 'available';
-              return (
-                <div key={s.id} className="rounded-[20px] border border-[#241B39] p-4 min-h-[168px] flex flex-col" style={{ background: 'var(--neon-surface-card-2)' }}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-mono text-[color:var(--neon-text-lo)] truncate">{s.code}</div>
-                      <div className="font-bold text-sm text-[color:var(--neon-text-hi)] truncate">{s.display_name}</div>
-                    </div>
-                    <span
-                      className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-bold border"
-                      style={{ background: 'rgba(6,6,10,.5)', borderColor: `${status.color}66`, color: status.color }}
-                    >
-                      <span className="h-[6px] w-[6px] rounded-full" style={{ background: status.color }} />
-                      {t(status.labelKey)}
-                    </span>
-                  </div>
-                  <div className="mt-auto pt-3">
-                    {isAvailable ? (
-                      <button
-                        type="button"
-                        onClick={() => onStationSelect(s)}
-                        className="w-full rounded-xl px-3 py-2 text-[13px] font-extrabold text-white"
-                        style={{ background: 'linear-gradient(135deg,#FF2D9E,#7B2FF7)', boxShadow: '0 0 18px -6px rgba(255,45,158,.8)' }}
-                      >
-                        {t('dashboard.bookNowCta')}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => onJoinQueue(s.game_type_code, s.game_type_name_ar, s.game_type_name_en)}
-                        className={cn('w-full rounded-xl px-3 py-2 text-[13px] font-extrabold border')}
-                        style={{ borderColor: 'var(--neon-cyan)', background: 'rgba(47,243,243,.08)', color: 'var(--neon-cyan-lt)' }}
-                      >
-                        {t('dashboard.joinQueueCta')}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
+            {selected.stations.map((s) => (
+              <PublicStationCard key={s.id} station={s} onStationSelect={onStationSelect} onJoinQueue={onJoinQueue} />
+            ))}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PublicStationCard({
+  station,
+  onStationSelect,
+  onJoinQueue,
+}: {
+  station: PublicStation;
+  onStationSelect: (station: PublicStation) => void;
+  onJoinQueue: (gameTypeCode: string, gameTypeNameAr: string, gameTypeNameEn: string) => void;
+}) {
+  const { t, locale } = useT();
+  const isAvailable = station.status === 'available';
+  const status = STATUS_META[station.status];
+  const [remaining, setRemaining] = useState<string | null>(null);
+
+  const gameTypeName = locale === 'ar' ? (station.game_type_name_ar || station.game_type_name_en) : station.game_type_name_en;
+
+  useEffect(() => {
+    if (station.status !== 'occupied' || !station.estimated_free_at) { setRemaining(null); return; }
+    const tick = () => {
+      const ms = new Date(station.estimated_free_at!).getTime() - Date.now();
+      if (ms <= 0) { setRemaining('ending'); return; }
+      const totalSec = Math.floor(ms / 1000);
+      setRemaining(`${Math.floor(totalSec / 60)}:${String(totalSec % 60).padStart(2, '0')}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [station.status, station.estimated_free_at]);
+
+  const isEnding = remaining === 'ending';
+
+  return (
+    <div className="relative rounded-[20px] border border-[#241B39] p-4 min-h-[212px] h-full flex flex-col" style={{ background: 'var(--neon-surface-card-2)' }}>
+      {/* Identity row: status badge leading, game icon trailing (mirrors automatically in RTL via flex + dir) */}
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-bold border"
+          style={{ background: 'rgba(6,6,10,.5)', borderColor: `${status.color}66`, color: status.color }}
+        >
+          <span className="h-[6px] w-[6px] rounded-full" style={{ background: status.color }} />
+          {t(status.labelKey)}
+        </span>
+        <span className="text-lg leading-none shrink-0" aria-hidden>{station.icon ?? '🎮'}</span>
+      </div>
+
+      {/* The code is the visual anchor — this is what staff/customers say out loud. */}
+      <div className="mt-3 min-w-0">
+        <div className="font-neon-display font-bold text-xl tracking-wide truncate" style={{ color: 'var(--neon-cyan)' }}>
+          {station.code}
+        </div>
+        <div className="text-sm font-bold text-[color:var(--neon-text-hi)] truncate mt-0.5">{station.display_name}</div>
+        <div className="text-xs text-[color:var(--neon-text-lo)] truncate mt-0.5">{gameTypeName}</div>
+      </div>
+
+      <div className="mt-auto pt-3 flex flex-col gap-2">
+        {remaining ? (
+          <div className="font-neon-display font-bold text-lg tabular-nums" style={{ color: 'var(--neon-magenta-soft)' }}>
+            {isEnding ? t('station.endingNow') : (
+              <>
+                {remaining}
+                <span className="ms-1.5 text-xs font-normal font-sans" style={{ color: 'var(--neon-text-lo)' }}>{t('station.remaining')}</span>
+              </>
+            )}
+          </div>
+        ) : isAvailable ? (
+          <div className="text-xs font-bold" style={{ color: 'var(--neon-cyan)' }}>{t('station.readyToPlay')}</div>
+        ) : null}
+
+        {isAvailable ? (
+          <button
+            type="button"
+            onClick={() => onStationSelect(station)}
+            className="w-full rounded-xl px-3 py-2 text-[13px] font-extrabold text-white"
+            style={{ background: 'linear-gradient(135deg,#FF2D9E,#7B2FF7)', boxShadow: '0 0 18px -6px rgba(255,45,158,.8)' }}
+          >
+            {t('dashboard.bookNowCta')}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onJoinQueue(station.game_type_code, station.game_type_name_ar, station.game_type_name_en)}
+            className={cn('w-full rounded-xl px-3 py-2 text-[13px] font-extrabold border')}
+            style={{ borderColor: 'var(--neon-cyan)', background: 'rgba(47,243,243,.08)', color: 'var(--neon-cyan-lt)' }}
+          >
+            {t('dashboard.joinQueueCta')}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

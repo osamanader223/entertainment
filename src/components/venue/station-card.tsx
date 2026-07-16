@@ -73,13 +73,13 @@ export function StationCard({ station, onClick, onConfirmEnd, index = 0 }: Props
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-2xl leading-none shrink-0" aria-hidden>
+            <span className="text-lg leading-none shrink-0" aria-hidden>
               {station.icon ?? '🎮'}
             </span>
-            <span className="text-xs font-mono text-muted-foreground truncate">{station.code}</span>
+            <span className="text-base font-mono font-bold text-gold-400 truncate">{station.code}</span>
           </div>
-          <div className="mt-2 font-semibold truncate">{station.display_name}</div>
-          <div className="text-xs text-muted-foreground mt-0.5 truncate">{gameTypeName}</div>
+          <div className="mt-1 text-sm font-medium text-muted-foreground truncate">{station.display_name}</div>
+          <div className="text-xs text-muted-foreground/70 mt-0.5 truncate">{gameTypeName}</div>
         </div>
 
         <AnimatePresence mode="wait">
