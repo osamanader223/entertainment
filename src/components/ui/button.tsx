@@ -4,12 +4,17 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/90',
-        gold: 'bg-gold-500 text-black hover:bg-gold-400 shadow-lg shadow-gold-500/20',
+        // Neon-arcade primary CTA — magenta->purple gradient with glow,
+        // per design_handoff_bolos_alley. `gold` kept as its own name
+        // (used pervasively across the app as "the" primary-action
+        // variant) but rendered identically to `default` now.
+        default:
+          'text-white [background:linear-gradient(135deg,#FF2D9E,#7B2FF7)] shadow-[0_0_18px_-6px_rgba(255,45,158,.8)] hover:shadow-[0_0_24px_-4px_rgba(255,45,158,.9)] transition-shadow',
+        gold: 'text-white [background:linear-gradient(135deg,#FF2D9E,#7B2FF7)] shadow-[0_0_18px_-6px_rgba(255,45,158,.8)] hover:shadow-[0_0_24px_-4px_rgba(255,45,158,.9)] transition-shadow',
         destructive:
           'bg-destructive text-destructive-foreground hover:bg-destructive/90',
         outline:
@@ -17,7 +22,7 @@ const buttonVariants = cva(
         secondary:
           'bg-secondary text-secondary-foreground hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
-        link: 'text-primary underline-offset-4 hover:underline',
+        link: 'text-accent underline-offset-4 hover:underline',
         // Poster design system (dashboard proof-of-concept only). Hard
         // offset "print registration" shadow that tightens and shifts the
         // button toward the paper on press/hover — flat fills, no gradients.

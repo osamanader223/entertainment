@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useT } from '@/i18n/context';
 import { LanguageToggle } from '@/components/language-toggle';
-import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   const { t } = useT();
@@ -16,14 +15,13 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
             BOLOS ALLEY
           </Link>
           <div className="flex items-center gap-3 text-sm">
-            <ThemeToggle />
             <LanguageToggle />
             <Link href="/login" className="text-muted-foreground hover:text-foreground transition-colors">
               {t('venue.signIn')}
             </Link>
             <Link
               href="/signup"
-              className="inline-flex items-center px-3 py-1.5 rounded-md bg-gold-500 text-black font-medium hover:bg-gold-400 transition-colors"
+              className="inline-flex items-center px-4 py-1.5 rounded-lg text-white font-medium [background:linear-gradient(135deg,#FF2D9E,#7B2FF7)] shadow-[0_0_14px_-4px_rgba(255,45,158,.8)] hover:shadow-[0_0_18px_-2px_rgba(255,45,158,.9)] transition-shadow"
             >
               {t('venue.bookNow')}
             </Link>

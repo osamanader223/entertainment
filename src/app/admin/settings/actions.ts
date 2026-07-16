@@ -27,7 +27,7 @@ export async function getVenueSettingsAction() {
   }
 }
 
-const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #D4AF37');
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #FF2D9E');
 
 const tenantSettingsSchema = z.object({
   displayName: z.string().min(1).max(120).optional(),

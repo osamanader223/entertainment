@@ -21,7 +21,7 @@ export function SettingsForm({ initialSettings, canEditBranding }: SettingsFormP
 
   // Venue identity
   const [displayName, setDisplayName] = useState(initialSettings.tenant.displayName);
-  const [brandPrimaryColor, setBrandPrimaryColor] = useState(initialSettings.tenant.brandPrimaryColor ?? '#D4AF37');
+  const [brandPrimaryColor, setBrandPrimaryColor] = useState(initialSettings.tenant.brandPrimaryColor ?? '#FF2D9E');
   const [brandAccentColor, setBrandAccentColor] = useState(initialSettings.tenant.brandAccentColor ?? '#1E40AF');
   const [logoUrl, setLogoUrl] = useState(initialSettings.tenant.logoUrl ?? '');
   const [savingIdentity, setSavingIdentity] = useState(false);

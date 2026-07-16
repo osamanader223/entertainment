@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { LanguageToggle } from '@/components/language-toggle';
-import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,7 +9,6 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           BOLOS ALLEY OS
         </Link>
         <div className="flex items-center gap-1">
-          <ThemeToggle />
           <LanguageToggle />
         </div>
       </header>

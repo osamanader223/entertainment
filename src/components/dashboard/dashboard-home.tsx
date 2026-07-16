@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { Wallet, Star, Flame, ListChecks, CalendarCheck2 } from 'lucide-react';
-import { NeonDashboardShell } from './neon-dashboard-shell';
 import { NeonLoyaltyModule } from './neon-loyalty-module';
 import { DashboardLiveGrid } from '@/components/venue/dashboard-live-grid';
 import { OffersShowcase } from '@/components/offers/offers-showcase';
@@ -76,7 +75,7 @@ export function DashboardHomeContent({
   })();
 
   return (
-    <NeonDashboardShell userName={userName} tierWord={tierWord}>
+    <>
       {/* Greeting header */}
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -208,7 +207,7 @@ export function DashboardHomeContent({
           gameTypeIdByCode={gameTypeIdByCode}
         />
       </section>
-    </NeonDashboardShell>
+    </>
   );
 }
 

@@ -18,7 +18,9 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       className={cn(
         poster
           ? 'rounded-lg border-2 border-poster-line bg-poster-paper-raised text-poster-ink shadow-[4px_4px_0_0_var(--poster-line)]'
-          : 'rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm text-card-foreground shadow-2xl shadow-black/40',
+          // Neon-arcade surface — flat gradient fill (not glass/blur), per
+          // design_handoff_bolos_alley: radius 20, hairline border, subtle depth shadow.
+          : 'rounded-[20px] border border-border/60 text-card-foreground shadow-lg shadow-black/30 [background:linear-gradient(160deg,#141020,#0E0B16)]',
         className
       )}
       {...props}

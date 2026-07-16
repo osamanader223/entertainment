@@ -62,19 +62,23 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        // Bolos brand
+        // Bolos brand — remapped from the old gold (#D4AF37) to the
+        // neon-arcade cyan accent. Kept the `gold` key name (used directly
+        // as text-gold-400/bg-gold-500/etc. across ~40 files) so every
+        // existing usage re-skins without touching each call site; the
+        // colours themselves are now neon cyan, not gold.
         gold: {
-          DEFAULT: '#D4AF37',
-          50: '#FBF7E7',
-          100: '#F6EFCE',
-          200: '#EDDF9D',
-          300: '#E3CF6C',
-          400: '#DABF3B',
-          500: '#D4AF37',
-          600: '#A98C2C',
-          700: '#7F6921',
-          800: '#544616',
-          900: '#2A230B',
+          DEFAULT: '#2FF3F3',
+          50: '#EAFFFE',
+          100: '#D3FEFD',
+          200: '#A7FCFC',
+          300: '#7FE9FF',
+          400: '#5FF0F0',
+          500: '#2FF3F3',
+          600: '#22C7C7',
+          700: '#1A9797',
+          800: '#146B6B',
+          900: '#0A3A3A',
         },
         // Poster design system (dashboard proof-of-concept only) — separate
         // namespace from `primary`/`secondary`/etc. above, which the rest of

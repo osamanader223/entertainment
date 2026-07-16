@@ -4,50 +4,57 @@
 
 @layer base {
   :root {
-    /* Light theme (not primary; kept for completeness) */
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 43 74% 49%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 43 74% 49%;
+    /* Neon-arcade design system — see design_handoff_bolos_alley/README.md.
+       Single fixed dark aesthetic (no separate light theme). Values are
+       raw HSL components (not hex) so Tailwind's opacity modifiers
+       (bg-card/40, border-white/5, etc. — used extensively already)
+       keep working via its hsl(var(--x)) splice mechanism. Kept identical
+       to .dark below so there's no stale "light gold" fallback lurking if
+       html.dark were ever removed. Hex source-of-truth for each value is
+       noted inline. */
+    --background: 240 25% 3%;         /* #06060A */
+    --foreground: 257 100% 97%;       /* #F5F1FF */
+    --card: 257 33% 8%;               /* #120E1C */
+    --card-foreground: 257 100% 97%;
+    --popover: 257 33% 8%;
+    --popover-foreground: 257 100% 97%;
+    --primary: 328 100% 59%;          /* #FF2D9E — magenta, primary brand/CTAs */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 263 93% 58%;         /* #7B2FF7 — purple */
+    --secondary-foreground: 0 0% 100%;
+    --muted: 257 41% 10%;             /* #150F24 */
+    --muted-foreground: 253 17% 58%;  /* #8A82A6 */
+    --accent: 180 89% 57%;            /* #2FF3F3 — cyan, highlights/status/links */
+    --accent-foreground: 202 73% 6%;  /* #04121A */
+    --destructive: 0 84% 60%;         /* #EF4444 */
+    --destructive-foreground: 0 0% 100%;
+    --border: 255 31% 15%;            /* #211B33 */
+    --input: 255 31% 15%;
+    --ring: 180 89% 57%;              /* cyan */
     --radius: 0.75rem;
   }
 
   .dark {
-    /* PRIMARY THEME — entertainment-venue dark with gold accents */
-    --background: 0 0% 5%;
-    --foreground: 0 0% 98%;
-    --card: 240 6% 8%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 6% 8%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 43 74% 52%;          /* gold #D4AF37 */
-    --primary-foreground: 240 10% 4%;
-    --secondary: 240 4% 14%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 4% 14%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 217 91% 50%;          /* blue accent */
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 18%;
-    --input: 240 4% 18%;
-    --ring: 43 74% 52%;
+    /* PRIMARY THEME — neon arcade at night. Same values as :root above. */
+    --background: 240 25% 3%;
+    --foreground: 257 100% 97%;
+    --card: 257 33% 8%;
+    --card-foreground: 257 100% 97%;
+    --popover: 257 33% 8%;
+    --popover-foreground: 257 100% 97%;
+    --primary: 328 100% 59%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 263 93% 58%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 257 41% 10%;
+    --muted-foreground: 253 17% 58%;
+    --accent: 180 89% 57%;
+    --accent-foreground: 202 73% 6%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 255 31% 15%;
+    --input: 255 31% 15%;
+    --ring: 180 89% 57%;
   }
 }
 
@@ -61,9 +68,15 @@
   body {
     @apply bg-background text-foreground antialiased;
     background-image:
-      radial-gradient(at 100% 0%, hsla(43, 74%, 52%, 0.06) 0px, transparent 50%),
-      radial-gradient(at 0% 100%, hsla(217, 91%, 50%, 0.06) 0px, transparent 50%);
+      radial-gradient(1200px 700px at 80% -10%, rgba(123, 47, 247, 0.18), transparent 60%),
+      radial-gradient(900px 600px at 0% 100%, rgba(47, 243, 243, 0.1), transparent 55%);
     background-attachment: fixed;
+  }
+
+  [dir='rtl'] body {
+    background-image:
+      radial-gradient(1200px 700px at 20% -10%, rgba(123, 47, 247, 0.18), transparent 60%),
+      radial-gradient(900px 600px at 100% 100%, rgba(47, 243, 243, 0.1), transparent 55%);
   }
 
   [dir='rtl'] {
@@ -200,12 +213,14 @@
   .glass-strong {
     @apply bg-card/70 backdrop-blur-2xl border border-white/10;
   }
+  /* Kept the class names (used across ~20 files for logo/brand text) —
+     now renders the neon magenta->purple gradient instead of gold. */
   .gradient-gold {
-    background-image: linear-gradient(135deg, #D4AF37 0%, #F5D04E 50%, #D4AF37 100%);
+    background-image: linear-gradient(135deg, #ff2d9e 0%, #b520c9 50%, #7b2ff7 100%);
   }
   .text-gradient-gold {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, #D4AF37 0%, #F5D04E 50%, #D4AF37 100%);
+    background-image: linear-gradient(135deg, #ff2d9e 0%, #b520c9 50%, #7b2ff7 100%);
   }
 }
 

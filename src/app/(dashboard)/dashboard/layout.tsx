@@ -1,16 +1,23 @@
-import { requireAuth, userHasAnyRole } from '@/lib/auth';
-import { DashboardHeader } from '@/components/dashboard/dashboard-header';
+import { requireAuth } from '@/lib/auth';
+import { getServerDict } from '@/i18n/server';
+import { AppNavShell } from '@/components/nav/app-nav-shell';
+import { Home, CalendarCheck, Wallet, User } from 'lucide-react';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireAuth('/dashboard');
-  const isStaff = userHasAnyRole(ctx, ['staff', 'manager', 'tenant_admin']) || ctx.isSuperAdmin;
-  const isAdmin = userHasAnyRole(ctx, ['manager', 'tenant_admin']) || ctx.isSuperAdmin;
-  const userName = ctx.profile?.full_name || ctx.email || ctx.phone || null;
+  const userName = ctx.profile?.full_name || ctx.email || ctx.phone || 'Player';
+  const { d } = await getServerDict();
+
+  const items = [
+    { key: 'home', href: '/dashboard', label: d.dashboard.navHome, icon: Home, exact: true },
+    { key: 'bookings', href: '/dashboard/bookings', label: d.dashboard.navBookings, icon: CalendarCheck },
+    { key: 'wallet', href: '/dashboard/wallet', label: d.dashboard.navWallet, icon: Wallet },
+    { key: 'profile', href: '/dashboard/settings', label: d.dashboard.navProfile, icon: User },
+  ];
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <DashboardHeader userName={userName} isStaff={isStaff} isAdmin={isAdmin} />
-      <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8">{children}</main>
-    </div>
+    <AppNavShell items={items} userName={userName}>
+      {children}
+    </AppNavShell>
   );
 }

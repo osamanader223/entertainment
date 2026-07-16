@@ -43,17 +43,17 @@ interface AnalyticsDashboardProps {
 // Tailwind utility classes (for legend dots/bars) paired with their raw hex
 // (conic-gradient() can't read Tailwind's bg-* utility classes directly).
 const SERIES_COLORS = [
-  { bar: 'bg-gold-400', dot: 'bg-gold-400', hex: '#DABF3B' },
+  { bar: 'bg-[#FF2D9E]', dot: 'bg-[#FF2D9E]', hex: '#FF2D9E' },  // neon magenta
+  { bar: 'bg-[#2FF3F3]', dot: 'bg-[#2FF3F3]', hex: '#2FF3F3' },  // neon cyan
+  { bar: 'bg-[#7B2FF7]', dot: 'bg-[#7B2FF7]', hex: '#7B2FF7' },  // neon purple
   { bar: 'bg-emerald-400', dot: 'bg-emerald-400', hex: '#34D399' },
-  { bar: 'bg-cyan-400', dot: 'bg-cyan-400', hex: '#22D3EE' },
-  { bar: 'bg-violet-400', dot: 'bg-violet-400', hex: '#A78BFA' },
-  { bar: 'bg-rose-400', dot: 'bg-rose-400', hex: '#FB7185' },
   { bar: 'bg-amber-400', dot: 'bg-amber-400', hex: '#FBBF24' },
+  { bar: 'bg-rose-400', dot: 'bg-rose-400', hex: '#FB7185' },
 ];
 
 const TIER_BADGE: Record<string, string> = {
   silver: 'bg-slate-400/15 text-slate-300 border-slate-400/30',
-  gold: 'bg-gold-500/15 text-gold-400 border-gold-500/30',
+  gold: 'bg-[#F5C451]/15 text-[#F5C451] border-[#F5C451]/30',
   platinum: 'bg-cyan-400/15 text-cyan-300 border-cyan-400/30',
   diamond: 'bg-violet-400/15 text-violet-300 border-violet-400/30',
   vip: 'bg-violet-400/15 text-violet-300 border-violet-400/30',

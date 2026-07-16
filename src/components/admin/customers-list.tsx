@@ -12,7 +12,7 @@ import { Search, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const TIER_BADGE: Record<string, string> = {
   silver: 'bg-slate-400/15 text-slate-300 border-slate-400/30',
-  gold: 'bg-gold-500/15 text-gold-400 border-gold-500/30',
+  gold: 'bg-[#F5C451]/15 text-[#F5C451] border-[#F5C451]/30',
   platinum: 'bg-cyan-400/15 text-cyan-300 border-cyan-400/30',
   diamond: 'bg-violet-400/15 text-violet-300 border-violet-400/30',
   vip: 'bg-violet-400/15 text-violet-300 border-violet-400/30',
