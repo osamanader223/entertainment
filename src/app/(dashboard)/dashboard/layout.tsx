@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import { requireAuth, userHasAnyRole } from '@/lib/auth';
 import { getServerDict } from '@/i18n/server';
 import { AppNavShell, type AppNavItem } from '@/components/nav/app-nav-shell';
@@ -8,6 +9,15 @@ const ADMIN_ROLES = ['manager', 'tenant_admin'] as const;
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireAuth('/dashboard');
+
+  // Hard gate: the cashier looks customers up by phone, so nobody gets past
+  // this layout without one — mainly hits Google sign-ins (Google never
+  // gives us a phone number). Re-checked on every load, so navigating away
+  // mid-onboarding and coming back just lands here again until it's set.
+  if (!ctx.profile?.phone) {
+    redirect('/onboarding');
+  }
+
   const userName = ctx.profile?.full_name || ctx.email || ctx.phone || 'Player';
   const { d } = await getServerDict();
 

@@ -493,6 +493,10 @@ export interface Database {
         Args: { p_branch_code: string };
         Returns: string;
       };
+      is_phone_registered: {
+        Args: { p_phone: string; p_exclude_user_id?: string | null };
+        Returns: boolean;
+      };
       wallet_credit: {
         Args: {
           p_tenant_id: string;

@@ -1,5 +1,9 @@
 import { requireAuth } from '@/lib/auth';
 import { getServerDict } from '@/i18n/server';
+import { getLoyaltySummary, getCustomerTotalSpentCents } from '@/lib/loyalty';
+import { ProfileForm } from '@/components/profile/profile-form';
+
+const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
 export const metadata = { title: 'Profile' };
 export const dynamic = 'force-dynamic';
@@ -8,32 +12,26 @@ export default async function ProfilePage() {
   const ctx = await requireAuth('/dashboard/profile');
   const { d } = await getServerDict();
 
+  const [loyalty, totalSpentCents] = await Promise.all([
+    getLoyaltySummary(DEMO_TENANT_ID, ctx.userId),
+    getCustomerTotalSpentCents(DEMO_TENANT_ID, ctx.userId),
+  ]);
+
   const memberSince = ctx.profile?.created_at
     ? new Date(ctx.profile.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-    : d.profile.notSet;
-
-  const rows: Array<[string, string]> = [
-    [d.profile.fullName, ctx.profile?.full_name || d.profile.notSet],
-    [d.profile.phone, ctx.phone || d.profile.notSet],
-    [d.profile.email, ctx.email || d.profile.notSet],
-    [d.profile.memberSince, memberSince],
-  ];
+    : null;
 
   return (
-    <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-2xl font-extrabold text-[color:var(--neon-text-hi)]">{d.profile.title}</h1>
-        <p className="text-sm text-[color:var(--neon-text-mid)] mt-1">{d.profile.subtitle}</p>
-      </div>
-
-      <div className="rounded-[20px] border border-[#241B39] divide-y divide-[#241B39]" style={{ background: 'var(--neon-surface-card-2)' }}>
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-4 px-5 py-4">
-            <span className="text-sm text-[color:var(--neon-text-mid)]">{label}</span>
-            <span className="text-sm font-bold text-[color:var(--neon-text-hi)] truncate">{value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <ProfileForm
+      fullName={ctx.profile?.full_name ?? ''}
+      phone={ctx.profile?.phone ?? ''}
+      email={ctx.email ?? ''}
+      preferredLocale={ctx.profile?.preferred_locale === 'en' ? 'en' : 'ar'}
+      memberSince={memberSince}
+      tier={loyalty.tier}
+      tierName={d.loyalty.tier[loyalty.tier]}
+      pointsBalance={loyalty.pointsBalance}
+      totalSpentCents={totalSpentCents}
+    />
   );
 }

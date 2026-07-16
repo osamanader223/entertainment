@@ -174,3 +174,20 @@ export async function getLoyaltySummary(tenantId: string, customerId: string): P
     recentLedger,
   };
 }
+
+/**
+ * Total captured spend for a customer — self-service, RLS-scoped (the
+ * payments_customer_self policy lets a customer read their own captured
+ * payments). Used on their own /dashboard/profile page.
+ */
+export async function getCustomerTotalSpentCents(tenantId: string, customerId: string): Promise<number> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('payments')
+    .select('amount_cents')
+    .eq('tenant_id', tenantId)
+    .eq('customer_id', customerId)
+    .eq('status', 'captured');
+  const rows = (data ?? []) as unknown as Array<{ amount_cents: number }>;
+  return rows.reduce((sum, p) => sum + p.amount_cents, 0);
+}

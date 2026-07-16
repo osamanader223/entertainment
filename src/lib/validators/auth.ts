@@ -30,19 +30,27 @@ export const loginEmailSchema = z.object({
   password: z.string().min(8, 'Password must be ≥ 8 characters'),
 });
 
-export const signupSchema = z
-  .object({
-    fullName: z.string().trim().min(2, 'Name too short').max(80),
-    email: emailSchema,
-    phone: phoneSchema,
-    password: z.string().min(8, 'Password must be ≥ 8 characters'),
-    confirmPassword: z.string(),
-    marketingConsent: z.boolean().default(false),
-  })
-  .refine((d) => d.password === d.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  });
+// Dedicated signup field schemas — separate from the shared phoneSchema/
+// emailSchema above (used by login/verify) so the signup form can show
+// translated (i18n key, not raw English) error copy without touching the
+// error messages login/verify already rely on.
+export const signupSchema = z.object({
+  fullName: z.string().trim().min(2, 'auth.invalidFullName'),
+  email: z.string().trim().toLowerCase().email('auth.invalidEmail'),
+  phone: z
+    .string()
+    .trim()
+    .min(1, 'auth.invalidPhone')
+    .transform((v, ctx) => {
+      const normalized = normalizePhone(v, 'SA');
+      if (!normalized) {
+        ctx.addIssue({ code: 'custom', message: 'auth.invalidPhone' });
+        return z.NEVER;
+      }
+      return normalized;
+    }),
+  password: z.string().min(8, 'auth.passwordTooShort'),
+});
 
 export const verifyOtpSchema = z.object({
   phone: phoneSchema,

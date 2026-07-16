@@ -1,0 +1,23 @@
+-- =========================================================================
+-- Phone uniqueness for profiles — DO NOT RUN YET.
+--
+-- As of 2026-07-16, this WILL FAIL: 6 profiles all share +966501234567 —
+-- every one of them is a bolos.test.*@example.com account created during
+-- automated testing of the signup flow, not real customer data. Delete
+-- those accounts (Supabase Dashboard -> Authentication -> Users; deleting
+-- the auth.users row cascades to profiles) before running this file.
+--
+-- Re-run this check — it must return zero rows — before applying the
+-- index below:
+--
+--   select phone, count(*)
+--   from public.profiles
+--   where phone is not null
+--   group by phone
+--   having count(*) > 1;
+-- =========================================================================
+
+-- Partial unique index: multiple NULLs are fine (not every profile has a
+-- phone yet — e.g. mid-onboarding Google sign-ins), only non-null values
+-- must be distinct.
+create unique index if not exists uq_profiles_phone on public.profiles(phone) where phone is not null;
