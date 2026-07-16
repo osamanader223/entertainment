@@ -16,15 +16,22 @@ export function OffersShowcase({ eligible, locked, nextTier, pointsToNextTier }:
   const { t } = useT();
 
   return (
-    <div className="space-y-6">
-      <section className="space-y-3">
-        <h2 className="text-xl font-semibold">{t('customerOffers.offersForYou')}</h2>
+    <div className="flex flex-col gap-6">
+      <section>
+        <div className="flex items-center justify-between mb-3.5">
+          <span className="text-xl font-extrabold text-[color:var(--neon-text-hi)]">{t('customerOffers.offersForYou')}</span>
+          {eligible.length > 0 && (
+            <a href="#" className="text-[13px] font-bold" style={{ color: 'var(--neon-cyan)' }}>
+              {t('customerOffers.seeAll')}
+            </a>
+          )}
+        </div>
         {eligible.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center rounded-lg border border-border/40 bg-card/20">
+          <p className="text-sm py-6 text-center rounded-2xl border border-[#2A1E42]" style={{ color: 'var(--neon-text-mid)' }}>
             {t('customerOffers.noOffersNow')}
           </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {eligible.map((offer) => (
               <OfferCard key={offer.id} offer={offer} />
             ))}
@@ -33,12 +40,12 @@ export function OffersShowcase({ eligible, locked, nextTier, pointsToNextTier }:
       </section>
 
       {locked.length > 0 && (
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-xl font-semibold">{t('customerOffers.unlockMore')}</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">{t('customerOffers.unlockMoreHint')}</p>
+        <section>
+          <div className="mb-3.5">
+            <div className="text-xl font-extrabold text-[color:var(--neon-text-hi)]">{t('customerOffers.unlockMore')}</div>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--neon-text-mid)' }}>{t('customerOffers.unlockMoreHint')}</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {locked.map((offer) => (
               <LockedOfferCard key={offer.id} offer={offer} nextTier={nextTier} pointsToNextTier={pointsToNextTier} />
             ))}

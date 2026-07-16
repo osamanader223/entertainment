@@ -3,16 +3,17 @@
 import { useRouter } from 'next/navigation';
 import { useCallback } from 'react';
 import { toast } from 'sonner';
-import type { PublicVenueState, PublicStation, PublicQueueGroup } from '@/lib/venue';
-import { LiveStationGrid } from '@/components/venue/live-station-grid';
+import type { PublicVenueState, PublicStation } from '@/lib/venue';
+import { PublicStationGrid } from '@/components/venue/public-station-grid';
 import { useT } from '@/i18n/context';
 
 interface Props {
   branchCode: string;
   initial?: PublicVenueState;
+  hourlyPriceCentsByGameTypeCode: Record<string, number | null>;
 }
 
-export function PublicLiveGrid({ branchCode, initial }: Props) {
+export function PublicLiveGrid({ branchCode, initial, hourlyPriceCentsByGameTypeCode }: Props) {
   const { t, locale } = useT();
   const router = useRouter();
 
@@ -26,25 +27,24 @@ export function PublicLiveGrid({ branchCode, initial }: Props) {
     [branchCode, router, t]
   );
 
-  const onQueueJoin = useCallback(
-    (group: PublicQueueGroup) => {
-      const gameTypeName = locale === 'ar'
-        ? (group.game_type_name_ar || group.game_type_name_en)
-        : group.game_type_name_en;
+  const onJoinQueue = useCallback(
+    (gameTypeCode: string, gameTypeNameAr: string, gameTypeNameEn: string) => {
+      const gameTypeName = locale === 'ar' ? (gameTypeNameAr || gameTypeNameEn) : gameTypeNameEn;
       toast.info(t('venue.signInToJoinQueue', { gameType: gameTypeName }));
       router.push(
-        `/login?redirect=${encodeURIComponent(`/dashboard/queue?branch=${branchCode}&intent=queue:${group.game_type_code}`)}`
+        `/login?redirect=${encodeURIComponent(`/dashboard/queue?branch=${branchCode}&intent=queue:${gameTypeCode}`)}`
       );
     },
     [branchCode, router, t, locale]
   );
 
   return (
-    <LiveStationGrid
+    <PublicStationGrid
       branchCode={branchCode}
       initial={initial}
+      hourlyPriceCentsByGameTypeCode={hourlyPriceCentsByGameTypeCode}
       onStationSelect={onStationSelect}
-      onQueueJoin={onQueueJoin}
+      onJoinQueue={onJoinQueue}
     />
   );
 }

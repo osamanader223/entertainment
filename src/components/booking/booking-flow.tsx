@@ -30,6 +30,10 @@ interface BookingFlowProps {
   initialWalletBalanceCents: number;
   initial?: PublicVenueState;
   initialOfferCode?: string;
+  /** Deep-link from a station/category card ("Book now") — pre-selects Step 1. */
+  initialGameTypeId?: string;
+  /** Deep-link from a specific station card — narrows Step 4's grid to just that station. */
+  initialStationId?: string;
 }
 
 interface ScheduledConfirmation {
@@ -115,13 +119,22 @@ function formatDateDayMonth(venueDate: string, locale: string): string {
   return new Intl.DateTimeFormat(localeTag(locale), { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(dateLabelInstant(venueDate));
 }
 
-export function BookingFlow({ branchCode: _branchCode, initialWalletBalanceCents, initialOfferCode }: BookingFlowProps) {
+export function BookingFlow({
+  branchCode: _branchCode,
+  initialWalletBalanceCents,
+  initialOfferCode,
+  initialGameTypeId,
+  initialStationId,
+}: BookingFlowProps) {
   const { t, locale, dir } = useT();
 
   // ==================== Step 1 — game type ====================
   const [gameTypes, setGameTypes] = useState<SchedulableGameType[]>([]);
   const [gameTypesLoaded, setGameTypesLoaded] = useState(false);
-  const [selectedGameTypeId, setSelectedGameTypeId] = useState<string | null>(null);
+  const [selectedGameTypeId, setSelectedGameTypeId] = useState<string | null>(initialGameTypeId ?? null);
+  // Deep-linked from a specific station card — narrows the Step 4 grid to just
+  // this one station until the customer picks a different game/date/duration.
+  const [preselectStationId, setPreselectStationId] = useState<string | null>(initialStationId ?? null);
 
   // ==================== Step 2 — duration ====================
   const [duration, setDuration] = useState<number | null>(null);
@@ -233,8 +246,15 @@ export function BookingFlow({ branchCode: _branchCode, initialWalletBalanceCents
 
   const selectedStationName = stationSlots.find((s) => s.stationId === selectedStationId)?.stationName ?? '';
 
+  const visibleStationSlots = useMemo(() => {
+    if (!preselectStationId) return stationSlots;
+    const only = stationSlots.filter((s) => s.stationId === preselectStationId);
+    return only.length > 0 ? only : stationSlots;
+  }, [stationSlots, preselectStationId]);
+
   const handleSelectGameType = (id: string) => {
     setSelectedGameTypeId(id);
+    if (id !== initialGameTypeId) setPreselectStationId(null);
     setConfirmation(null);
   };
   const handleSelectDuration = (min: number) => {
@@ -393,10 +413,10 @@ export function BookingFlow({ branchCode: _branchCode, initialWalletBalanceCents
             <div className="text-center text-sm text-muted-foreground py-6">{t('slots.loadingSlots')}</div>
           ) : slotsLoaded && stationSlots.length === 0 ? (
             <p className="text-sm text-destructive text-center py-6">{t('slots.noStationsForGame')}</p>
-          ) : slotsLoaded && stationSlots.every((s) => s.slots.length === 0) ? (
+          ) : slotsLoaded && visibleStationSlots.every((s) => s.slots.length === 0) ? (
             <p className="text-sm text-destructive text-center py-6">{t('slots.noSlotsAvailable')}</p>
           ) : (
-            stationSlots.map((station) => (
+            visibleStationSlots.map((station) => (
               <div key={station.stationId}>
                 <div className="text-sm font-semibold mb-2">{station.stationName}</div>
                 <div className="flex flex-wrap gap-2">

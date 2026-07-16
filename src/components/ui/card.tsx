@@ -1,12 +1,24 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 
-const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  /**
+   * Poster design system (dashboard proof-of-concept only): flat fill, thick
+   * black border, hard offset "print registration" shadow — no blur, no
+   * soft shadow, no gradient. Every other Card usage across the app omits
+   * this prop and is completely unaffected.
+   */
+  poster?: boolean;
+}
+
+const Card = React.forwardRef<HTMLDivElement, CardProps>(
+  ({ className, poster, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
-        'rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm text-card-foreground shadow-2xl shadow-black/40',
+        poster
+          ? 'rounded-lg border-2 border-poster-line bg-poster-paper-raised text-poster-ink shadow-[4px_4px_0_0_var(--poster-line)]'
+          : 'rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm text-card-foreground shadow-2xl shadow-black/40',
         className
       )}
       {...props}

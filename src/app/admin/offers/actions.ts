@@ -50,6 +50,7 @@ const offerBaseSchema = z.object({
   validFrom: z.string().optional().nullable(),
   validTo: z.string().optional().nullable(),
   isActive: z.boolean(),
+  imageUrl: z.string().max(1000).optional().nullable(),
 });
 
 // Create: code required when redemptionType === 'code'

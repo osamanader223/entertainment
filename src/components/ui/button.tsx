@@ -18,6 +18,26 @@ const buttonVariants = cva(
           'bg-secondary text-secondary-foreground hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
+        // Poster design system (dashboard proof-of-concept only). Hard
+        // offset "print registration" shadow that tightens and shifts the
+        // button toward the paper on press/hover — flat fills, no gradients.
+        posterPrimary:
+          'rounded-lg border-2 border-poster-line bg-poster-primary text-poster-primary-ink font-poster-display uppercase tracking-wide ' +
+          'shadow-[3px_3px_0_0_var(--poster-line)] transition-all duration-150 ' +
+          'hover:translate-x-px hover:translate-y-px hover:shadow-[2px_2px_0_0_var(--poster-line)] ' +
+          'active:translate-x-[3px] active:translate-y-[3px] active:shadow-none',
+        posterSecondary:
+          'rounded-lg border-2 border-poster-line bg-poster-secondary text-poster-primary-ink font-poster-display uppercase tracking-wide ' +
+          'shadow-[3px_3px_0_0_var(--poster-line)] transition-all duration-150 ' +
+          'hover:translate-x-px hover:translate-y-px hover:shadow-[2px_2px_0_0_var(--poster-line)] ' +
+          'active:translate-x-[3px] active:translate-y-[3px] active:shadow-none',
+        posterOutline:
+          'rounded-lg border-2 border-poster-line bg-poster-paper text-poster-ink font-poster-sans font-semibold ' +
+          'shadow-[3px_3px_0_0_var(--poster-line)] transition-all duration-150 ' +
+          'hover:translate-x-px hover:translate-y-px hover:shadow-[2px_2px_0_0_var(--poster-line)] ' +
+          'active:translate-x-[3px] active:translate-y-[3px] active:shadow-none',
+        posterGhost:
+          'rounded-lg text-poster-ink font-poster-sans font-semibold hover:bg-poster-line/10',
       },
       size: {
         default: 'h-10 px-4 py-2',

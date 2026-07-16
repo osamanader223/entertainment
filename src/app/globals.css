@@ -74,6 +74,125 @@
   }
 }
 
+/* =====================================================================
+   POSTER DESIGN SYSTEM — vintage screen-print aesthetic.
+   Scoped entirely under `.poster-theme` so it never leaks onto the rest
+   of the app, which still runs on the --background/--primary/etc. tokens
+   above. `.poster-dark` is an INDEPENDENT toggle class (kept off the
+   literal `dark` class, which is already hardcoded on <html> for the
+   existing theme) applied by ThemeProvider; it only means anything
+   inside a `.poster-theme` scope.
+   ===================================================================== */
+.poster-theme {
+  /* Light (default) — vintage poster paper */
+  --poster-paper: #fff8ec;
+  --poster-paper-raised: #ffffff;
+  --poster-ink: #1a1614;
+  --poster-ink-muted: #6b615a;
+  --poster-line: #1a1614;
+  --poster-primary: #fd5a46;
+  --poster-primary-ink: #fff8ec;
+  --poster-secondary: #552cb7;
+  --poster-accent-gold: #ffc567;
+  --poster-accent-green: #00995e;
+  --poster-accent-blue: #058cd7;
+  --poster-accent-pink: #fb7da8;
+}
+
+.poster-dark .poster-theme {
+  /* Same print, inverted stock */
+  --poster-paper: #14100e;
+  --poster-paper-raised: #1f1a17;
+  --poster-ink: #fff8ec;
+  --poster-ink-muted: #9a8f86;
+  --poster-line: #3a322c;
+  --poster-primary: #ff6b58;
+  --poster-primary-ink: #14100e;
+  --poster-secondary: #7b52d3;
+  --poster-accent-gold: #ffd37e;
+  --poster-accent-green: #1fb877;
+  --poster-accent-blue: #3aa9e8;
+  --poster-accent-pink: #ff9cc0;
+}
+
+/* Arabic always renders in Cairo within the poster scope — Cabinet
+   Grotesk/Satoshi have no Arabic glyph coverage so this would mostly
+   happen via font-fallback anyway, but forcing it avoids a mixed look
+   where Western numerals inside an Arabic sentence render in the Latin
+   display font while the surrounding letters fall back to Cairo. */
+[dir='rtl'] .poster-theme,
+[dir='rtl'] .poster-theme * {
+  font-family: var(--font-cairo), system-ui, sans-serif !important;
+}
+
+/* Subtle paper grain — background only, never over dense text/tables.
+   Low-opacity SVG feTurbulence noise, non-interactive, blended so it
+   reads on both light and dark stock. */
+.poster-grain {
+  position: relative;
+  isolation: isolate;
+}
+.poster-grain::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.poster-grain > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* =====================================================================
+   NEON-ARCADE DESIGN SYSTEM — from design_handoff_bolos_alley.
+   Supersedes the poster system on the dashboard (single fixed dark
+   aesthetic, no light/dark toggle in this handoff). Scoped under
+   `.neon-theme` so it stays inert everywhere else in the app.
+   ===================================================================== */
+.neon-theme {
+  font-family: var(--font-tajawal), system-ui, sans-serif;
+
+  --neon-bg-base: #06060a;
+  --neon-surface-1: #0a0a0f;
+  --neon-surface-card: linear-gradient(160deg, #141020, #0e0b16);
+  --neon-surface-card-2: linear-gradient(160deg, #150f24, #0d0917);
+  --neon-surface-offer: linear-gradient(160deg, #170f28, #0d0917);
+  --neon-surface-loyalty: linear-gradient(150deg, #1a0f2e, #120a22);
+  --neon-canvas-glow:
+    radial-gradient(1200px 700px at 80% -10%, rgba(123, 47, 247, 0.18), transparent 60%),
+    radial-gradient(900px 600px at 0% 100%, rgba(47, 243, 243, 0.1), transparent 55%);
+  --neon-canvas-glow-rtl:
+    radial-gradient(1200px 700px at 20% -10%, rgba(123, 47, 247, 0.18), transparent 60%),
+    radial-gradient(900px 600px at 100% 100%, rgba(47, 243, 243, 0.1), transparent 55%);
+
+  --neon-magenta: #ff2d9e;
+  --neon-magenta-soft: #ff6fcb;
+  --neon-purple: #7b2ff7;
+  --neon-purple-lt: #b98cff;
+  --neon-cyan: #2ff3f3;
+  --neon-cyan-lt: #7fe9ff;
+  --neon-gold: #f5c451;
+  --neon-text-hi: #f5f1ff;
+  --neon-text-mid: #8a82a6;
+  --neon-text-lo: #6e668a;
+  --neon-border-div: #1c1730;
+}
+
+[dir='rtl'] .neon-theme {
+  --neon-canvas-glow: var(--neon-canvas-glow-rtl);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-bolosGlow,
+  .animate-bolosPulse {
+    animation: none !important;
+  }
+}
+
 @layer components {
   .glass {
     @apply bg-card/40 backdrop-blur-xl border border-white/5;

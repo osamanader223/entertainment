@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { LogOut, LayoutDashboard, Calendar, Users, Settings, CreditCard, ShieldAlert } from 'lucide-react';
 import { useT } from '@/i18n/context';
 import { LanguageToggle } from '@/components/language-toggle';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 interface DashboardHeaderProps {
   userName: string | null;
@@ -14,6 +16,12 @@ interface DashboardHeaderProps {
 
 export function DashboardHeader({ userName, isStaff, isAdmin }: DashboardHeaderProps) {
   const { t } = useT();
+  const pathname = usePathname();
+
+  // The dashboard home screen (/dashboard) has its own neon-arcade nav
+  // (bottom tabs / top nav / side nav per breakpoint) — see DashboardShell.
+  // Every other dashboard route keeps this existing header unchanged.
+  if (pathname === '/dashboard') return null;
 
   return (
     <header className="border-b border-border/50 bg-card/40 backdrop-blur-lg sticky top-0 z-40">
@@ -50,6 +58,7 @@ export function DashboardHeader({ userName, isStaff, isAdmin }: DashboardHeaderP
         </nav>
 
         <div className="flex items-center gap-3">
+          <ThemeToggle />
           <LanguageToggle />
           {userName && (
             <span className="hidden md:inline text-sm text-muted-foreground">{userName}</span>

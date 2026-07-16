@@ -13,10 +13,10 @@ const DEMO_BRANCH_CODE = 'JED-01';
 export default async function BookPage({
   searchParams,
 }: {
-  searchParams: Promise<{ offer?: string }>;
+  searchParams: Promise<{ offer?: string; game?: string; station?: string }>;
 }) {
   const ctx = await requireAuth('/dashboard/book');
-  const { offer } = await searchParams;
+  const { offer, game, station } = await searchParams;
 
   const walletBalanceCents = await getWalletBalance(DEMO_TENANT_ID, ctx.userId);
   const branchId = await resolveBranchByCode(DEMO_BRANCH_CODE);
@@ -31,6 +31,8 @@ export default async function BookPage({
       initialWalletBalanceCents={walletBalanceCents}
       initial={initialState ?? undefined}
       initialOfferCode={offer}
+      initialGameTypeId={game}
+      initialStationId={station}
     />
   );
 }

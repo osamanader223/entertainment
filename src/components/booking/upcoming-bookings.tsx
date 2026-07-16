@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { createClient } from '@/lib/supabase/client';
 import { formatMoney, translateReason } from '@/lib/utils';
 import { useT } from '@/i18n/context';
@@ -13,6 +11,9 @@ import { CalendarClock, Loader2 } from 'lucide-react';
 
 const NO_SHOW_CUTOFF_MINUTES = 10;
 
+// Not part of the design_handoff_bolos_alley mockup (which has no upcoming-
+// reservations section) — kept as a real, already-shipped feature and
+// re-themed to match the surrounding neon canvas rather than dropped.
 export function UpcomingBookings({ customerId, initialBookings }: { customerId: string; initialBookings: CustomerUpcomingBooking[] }) {
   const { t } = useT();
   const [bookings, setBookings] = useState(initialBookings);
@@ -54,9 +55,9 @@ export function UpcomingBookings({ customerId, initialBookings }: { customerId: 
   };
 
   return (
-    <section className="space-y-3">
-      <h2 className="text-xl font-semibold flex items-center gap-2">
-        <CalendarClock className="h-5 w-5 text-gold-400" />
+    <section className="flex flex-col gap-3">
+      <h2 className="text-xl font-extrabold text-[color:var(--neon-text-hi)] flex items-center gap-2">
+        <CalendarClock className="h-5 w-5" style={{ color: 'var(--neon-magenta-soft)' }} />
         {t('scheduling.upcomingBookings')}
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -65,42 +66,39 @@ export function UpcomingBookings({ customerId, initialBookings }: { customerId: 
           const canCancel = b.status === 'confirmed' && minutesUntil > NO_SHOW_CUTOFF_MINUTES;
 
           return (
-            <Card key={b.bookingId} className="glass">
-              <CardContent className="p-4 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="font-semibold">{b.stationName} · {b.gameTypeName}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {new Date(b.scheduledStartAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </div>
+            <div key={b.bookingId} className="rounded-[20px] border border-[#241B39] p-4 flex flex-col gap-2" style={{ background: 'var(--neon-surface-card-2)' }}>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="font-bold text-[color:var(--neon-text-hi)]">{b.stationName} · {b.gameTypeName}</div>
+                  <div className="text-sm text-[color:var(--neon-text-mid)]">
+                    {new Date(b.scheduledStartAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </div>
-                  <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground shrink-0">
-                    {t(`scheduling.status_${b.status}`)}
-                  </span>
                 </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span className="font-mono">{b.referenceCode}</span>
-                  <span>{formatMoney(b.amountCents)}</span>
-                </div>
-                <div className="text-xs text-gold-400">
-                  {minutesUntil > 0
-                    ? t('scheduling.inMinutes', { n: String(minutesUntil) })
-                    : t('scheduling.startingNow')}
-                </div>
-                {canCancel && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full text-destructive hover:text-destructive"
-                    disabled={cancellingId === b.bookingId}
-                    onClick={() => handleCancel(b.bookingId)}
-                  >
-                    {cancellingId === b.bookingId && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    {t('scheduling.cancelBooking')}
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+                <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border border-[#241C3A] text-[color:var(--neon-text-lo)] shrink-0">
+                  {t(`scheduling.status_${b.status}`)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-[color:var(--neon-text-mid)]">
+                <span className="font-mono">{b.referenceCode}</span>
+                <span className="font-neon-display tabular-nums" style={{ color: 'var(--neon-cyan-lt)' }}>{formatMoney(b.amountCents)}</span>
+              </div>
+              <div className="text-xs font-bold" style={{ color: 'var(--neon-magenta-soft)' }}>
+                {minutesUntil > 0
+                  ? t('scheduling.inMinutes', { n: String(minutesUntil) })
+                  : t('scheduling.startingNow')}
+              </div>
+              {canCancel && (
+                <button
+                  type="button"
+                  disabled={cancellingId === b.bookingId}
+                  onClick={() => handleCancel(b.bookingId)}
+                  className="w-full rounded-xl border border-[#3A2F58] py-2 text-[13px] font-bold flex items-center justify-center gap-1.5 text-[color:var(--neon-text-mid)] hover:text-[color:var(--neon-text-hi)] transition-colors"
+                >
+                  {cancellingId === b.bookingId && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t('scheduling.cancelBooking')}
+                </button>
+              )}
+            </div>
           );
         })}
       </div>

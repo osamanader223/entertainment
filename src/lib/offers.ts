@@ -21,6 +21,7 @@ export interface OfferRow {
   valid_from: string | null;
   valid_to: string | null;
   is_active: boolean;
+  image_url: string | null;
   created_at: string;
 }
 
@@ -53,6 +54,7 @@ export interface CreateOfferInput {
   validFrom?: string | null;
   validTo?: string | null;
   isActive: boolean;
+  imageUrl?: string | null;
   actorId: string;
 }
 
@@ -88,6 +90,7 @@ export async function createOffer(input: CreateOfferInput): Promise<{ offerId: s
       valid_from: input.validFrom ?? null,
       valid_to: input.validTo ?? null,
       is_active: input.isActive,
+      image_url: input.imageUrl ?? null,
     } as never)
     .select('id')
     .single();
@@ -135,6 +138,7 @@ export async function updateOffer(
   if (patch.validFrom !== undefined) update.valid_from = patch.validFrom;
   if (patch.validTo !== undefined) update.valid_to = patch.validTo;
   if (patch.isActive !== undefined) update.is_active = patch.isActive;
+  if (patch.imageUrl !== undefined) update.image_url = patch.imageUrl;
 
   const { error } = await admin
     .from('offers')
@@ -556,6 +560,7 @@ export interface CustomerOfferCard {
   minTier: string | null;
   validTo: string | null;
   remainingUsesForCustomer: number | null;
+  imageUrl: string | null;
 }
 
 export interface LockedCustomerOfferCard extends CustomerOfferCard {
@@ -663,6 +668,7 @@ export async function getCustomerOffers(input: {
       minTier: o.min_tier,
       validTo: o.valid_to,
       remainingUsesForCustomer: o.max_uses_per_customer !== null ? Math.max(0, o.max_uses_per_customer - usedCount) : null,
+      imageUrl: o.image_url,
     };
 
     if (o.min_tier) {

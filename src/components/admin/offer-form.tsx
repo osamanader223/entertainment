@@ -52,6 +52,7 @@ export function OfferForm({ mode, initial, gameTypes, onSave, onCancel }: OfferF
   const [validFrom, setValidFrom] = useState(initial?.valid_from?.slice(0, 10) ?? '');
   const [validTo, setValidTo] = useState(initial?.valid_to?.slice(0, 10) ?? '');
   const [isActive, setIsActive] = useState(initial?.is_active ?? true);
+  const [imageUrl, setImageUrl] = useState(initial?.image_url ?? '');
 
   const discountUnitHint = {
     percent: '%',
@@ -87,6 +88,7 @@ export function OfferForm({ mode, initial, gameTypes, onSave, onCancel }: OfferF
         validFrom: validFrom || null,
         validTo: validTo || null,
         isActive,
+        imageUrl: imageUrl.trim() || null,
       });
       if (!ok) setPending(false);
     } catch {
@@ -228,6 +230,14 @@ export function OfferForm({ mode, initial, gameTypes, onSave, onCancel }: OfferF
               <Input type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} />
             </FormField>
           </div>
+
+          <FormField label={t('admin.offerImageUrl')}>
+            <Input
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="https://…/offer.png"
+            />
+          </FormField>
 
           <label className="flex items-center gap-2 cursor-pointer">
             <input

@@ -1,18 +1,9 @@
 'use client';
 
-import { Card, CardContent } from '@/components/ui/card';
 import { useT } from '@/i18n/context';
-import { cn } from '@/lib/utils';
 import type { LockedCustomerOfferCard } from '@/lib/offers';
 import { discountSentence } from './discount-format';
 import { Lock } from 'lucide-react';
-
-const TIER_BADGE: Record<string, string> = {
-  silver: 'bg-slate-400/15 text-slate-300 border-slate-400/30',
-  gold: 'bg-gold-500/15 text-gold-400 border-gold-500/30',
-  platinum: 'bg-cyan-400/15 text-cyan-300 border-cyan-400/30',
-  diamond: 'bg-violet-400/15 text-violet-300 border-violet-400/30',
-};
 
 interface LockedOfferCardProps {
   offer: LockedCustomerOfferCard;
@@ -20,6 +11,10 @@ interface LockedOfferCardProps {
   pointsToNextTier?: number | null;
 }
 
+// The handoff mockup only specifies the unlocked offer card — this locked
+// variant (a real feature: offers gated behind a loyalty tier) follows the
+// same neon surface/radius/border language, dimmed, with a lock badge
+// instead of the discount badge and no code/use-now controls.
 export function LockedOfferCard({ offer, nextTier, pointsToNextTier }: LockedOfferCardProps) {
   const { t, locale } = useT();
 
@@ -28,28 +23,36 @@ export function LockedOfferCard({ offer, nextTier, pointsToNextTier }: LockedOff
   const isNextTier = nextTier === offer.requiredTier && pointsToNextTier !== null && pointsToNextTier !== undefined;
 
   return (
-    <Card className="glass grayscale opacity-60 hover:opacity-80 transition-opacity">
-      <CardContent className="p-5 space-y-3">
-        <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold', TIER_BADGE[offer.requiredTier] ?? TIER_BADGE.gold)}>
-          <Lock className="h-3.5 w-3.5" />
+    <div
+      className="rounded-[20px] border border-[#2A1E42] overflow-hidden flex flex-col opacity-70"
+      style={{ background: 'var(--neon-surface-offer)' }}
+    >
+      <div className="relative h-[118px] overflow-hidden flex items-center justify-center" style={{ background: 'linear-gradient(160deg,#1a1626,#0d0917)' }}>
+        <Lock className="h-8 w-8" style={{ color: 'var(--neon-text-lo)' }} />
+        <span
+          className="absolute top-3 end-3 font-neon-display font-extrabold text-xs px-2.5 py-1 rounded-[10px] bg-black/50 border border-[#3A2F58]"
+          style={{ color: 'var(--neon-text-mid)' }}
+        >
           {t('customerOffers.unlockAt', { tier: t(`loyalty.tier.${offer.requiredTier}`) })}
         </span>
+      </div>
 
+      <div className="p-[18px] pt-4 flex flex-col gap-2">
         <div>
-          <h3 className="font-semibold text-base">{name}</h3>
-          {description && <p className="text-sm text-muted-foreground mt-0.5">{description}</p>}
+          <div className="text-[17px] font-extrabold text-[color:var(--neon-text-hi)]">{name}</div>
+          {description && <div className="text-[13px] text-[#9089A8] leading-[1.5] mt-1">{description}</div>}
         </div>
-
-        <p className="text-sm font-medium">{discountSentence(t, offer.discountType, offer.discountValue)}</p>
-
+        <div className="text-sm font-semibold text-[color:var(--neon-text-mid)]">
+          {discountSentence(t, offer.discountType, offer.discountValue)}
+        </div>
         {isNextTier ? (
-          <p className="text-xs text-gold-400">
+          <div className="text-xs font-bold" style={{ color: 'var(--neon-gold)' }}>
             {t('customerOffers.pointsAway', { points: String(pointsToNextTier), tier: t(`loyalty.tier.${offer.requiredTier}`) })}
-          </p>
+          </div>
         ) : (
-          <p className="text-xs text-muted-foreground">{t('customerOffers.keepPlaying')}</p>
+          <div className="text-xs text-[color:var(--neon-text-lo)]">{t('customerOffers.keepPlaying')}</div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

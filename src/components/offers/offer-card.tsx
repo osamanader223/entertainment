@@ -3,32 +3,38 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { useT } from '@/i18n/context';
-import { cn, formatMoney } from '@/lib/utils';
+import { formatMoney } from '@/lib/utils';
 import type { CustomerOfferCard as CustomerOfferCardData } from '@/lib/offers';
-import { discountBadgeText } from './discount-format';
-import { Copy, Check, ArrowRight, Percent, DollarSign, Clock, Sparkles } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 
-const TYPE_STYLES: Record<string, { border: string; badge: string; icon: typeof Percent }> = {
-  percent: { border: 'border-s-4 border-s-emerald-500/60', badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', icon: Percent },
-  fixed: { border: 'border-s-4 border-s-blue-500/60', badge: 'bg-blue-500/15 text-blue-400 border-blue-500/30', icon: DollarSign },
-  free_minutes: { border: 'border-s-4 border-s-violet-500/60', badge: 'bg-violet-500/15 text-violet-400 border-violet-500/30', icon: Clock },
-  double_points: { border: 'border-s-4 border-s-gold-500/60', badge: 'bg-gold-500/15 text-gold-400 border-gold-500/30', icon: Sparkles },
-};
+// Compact scoreboard-style badge text, matching the handoff mockup exactly
+// (e.g. "-25%", "-40%", "2x") — distinct from the longer "25% OFF" sentence
+// form used elsewhere in the app (discount-format.ts).
+function compactBadgeText(discountType: string, discountValue: number): string {
+  switch (discountType) {
+    case 'percent': return `-${discountValue}%`;
+    case 'fixed': return `-${formatMoney(discountValue)}`;
+    case 'free_minutes': return `+${discountValue}m`;
+    case 'double_points': return '2x';
+    default: return '';
+  }
+}
 
-export function OfferCard({ offer }: { offer: CustomerOfferCardData }) {
+interface OfferCardProps {
+  offer: CustomerOfferCardData;
+  /** Overrides offer.imageUrl (e.g. future Ideogram-generated artwork). Falls back to a flat gradient placeholder — never a broken image. */
+  illustration?: string;
+}
+
+export function OfferCard({ offer, illustration }: OfferCardProps) {
   const { t, locale } = useT();
   const router = useRouter();
   const [copied, setCopied] = useState(false);
-
-  const style = TYPE_STYLES[offer.discountType] ?? TYPE_STYLES.percent;
-  const Icon = style.icon;
+  const image = illustration ?? offer.imageUrl ?? undefined;
 
   const name = locale === 'ar' ? offer.nameAr : offer.nameEn;
   const description = locale === 'ar' ? offer.descriptionAr : offer.descriptionEn;
-  const gameTypeName = locale === 'ar' ? offer.appliesToGameTypeNameAr : offer.appliesToGameTypeName;
 
   const handleCopy = async () => {
     if (!offer.code) return;
@@ -51,54 +57,69 @@ export function OfferCard({ offer }: { offer: CustomerOfferCardData }) {
   };
 
   return (
-    <Card className={cn('glass', style.border)}>
-      <CardContent className="p-5 space-y-3">
-        <span className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-bold', style.badge)}>
-          <Icon className="h-3.5 w-3.5" />
-          {discountBadgeText(t, offer.discountType, offer.discountValue)}
-        </span>
-
-        <div>
-          <h3 className="font-semibold text-base">{name}</h3>
-          {description && <p className="text-sm text-muted-foreground mt-0.5">{description}</p>}
-        </div>
-
-        <div className="text-xs text-muted-foreground space-y-1">
-          <div>{gameTypeName ?? t('customerOffers.allGames')}</div>
-          {offer.minAmountCents !== null && (
-            <div>{t('customerOffers.minSpend', { amount: formatMoney(offer.minAmountCents) })}</div>
-          )}
-          {offer.validTo && (
-            <div>{t('customerOffers.expiresOn', { date: new Date(offer.validTo).toLocaleDateString('en-US') })}</div>
-          )}
-          {offer.remainingUsesForCustomer !== null && (
-            <div>{t('customerOffers.usesLeft', { n: String(offer.remainingUsesForCustomer) })}</div>
-          )}
-        </div>
-
-        {offer.redemptionType === 'auto' && (
-          <p className="text-xs text-emerald-400">{t('customerOffers.appliesAutomatically')}</p>
+    <div
+      className="rounded-[20px] border border-[#2A1E42] overflow-hidden flex flex-col"
+      style={{ background: 'var(--neon-surface-offer)' }}
+    >
+      <div className="relative h-[118px] overflow-hidden">
+        {image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <div
+            className="absolute inset-0"
+            style={{ background: 'linear-gradient(160deg,#1E1730,#120E1E)' }}
+            aria-hidden
+          />
         )}
+        <span
+          className="absolute top-3 end-3 font-neon-display font-extrabold text-[15px] px-2.5 py-1 rounded-[10px]"
+          style={{ background: 'var(--neon-cyan)', color: '#04121A', boxShadow: '0 0 18px rgba(47,243,243,.7)' }}
+        >
+          {compactBadgeText(offer.discountType, offer.discountValue)}
+        </span>
+        <span
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, rgba(8,6,14,.92), rgba(8,6,14,.25) 55%, transparent)' }}
+        />
+      </div>
 
-        <div className="flex gap-2 pt-1">
-          {offer.redemptionType === 'code' && offer.code && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 font-mono"
-              title={t('customerOffers.copyCode')}
-              onClick={handleCopy}
-            >
-              {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-              {offer.code}
-            </Button>
-          )}
-          <Button variant="gold" size="sm" className="flex-1" onClick={handleUseNow}>
-            {t('customerOffers.useNow')}
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
+      <div className="p-[18px] pt-4 flex flex-col gap-3">
+        <div>
+          <div className="text-[17px] font-extrabold text-[color:var(--neon-text-hi)]">{name}</div>
+          {description && <div className="text-[13px] text-[#9089A8] leading-[1.5] mt-1">{description}</div>}
         </div>
-      </CardContent>
-    </Card>
+
+        <div className="flex items-center justify-between gap-2.5">
+          {offer.code ? (
+            <button
+              type="button"
+              onClick={handleCopy}
+              title={t('customerOffers.copyCode')}
+              className="flex items-center gap-2 rounded-[10px] px-3 py-[7px] border border-dashed"
+              style={{ borderColor: '#3A2F58', background: '#0E0A18' }}
+            >
+              <span className="text-[11px] font-bold text-[color:var(--neon-text-lo)]">{t('customerOffers.codeLabelShort')}</span>
+              <span className="font-neon-display font-bold text-sm tracking-wider" style={{ color: 'var(--neon-magenta-soft)' }}>
+                {offer.code}
+              </span>
+              {copied ? <Check className="h-3.5 w-3.5 text-[color:var(--neon-cyan)]" /> : <Copy className="h-3 w-3 text-[color:var(--neon-text-lo)]" />}
+            </button>
+          ) : (
+            <span className="text-xs font-semibold" style={{ color: 'var(--neon-cyan)' }}>
+              {t('customerOffers.appliesAutomatically')}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleUseNow}
+            className="whitespace-nowrap rounded-xl px-4 py-2.5 text-[13px] font-extrabold text-white"
+            style={{ background: 'linear-gradient(135deg,#FF2D9E,#7B2FF7)', boxShadow: '0 0 18px -6px rgba(255,45,158,.8)' }}
+          >
+            {t('customerOffers.useNow')}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

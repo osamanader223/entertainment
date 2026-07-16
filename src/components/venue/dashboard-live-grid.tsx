@@ -1,6 +1,6 @@
 'use client';
 
-import { LiveStationGrid } from './live-station-grid';
+import { NeonStationGrid } from './neon-station-grid';
 import type { PublicVenueState } from '@/lib/venue';
 import { confirmStationSessionEndedAction } from '@/app/(dashboard)/dashboard/actions';
 import { toast } from 'sonner';
@@ -10,10 +10,14 @@ export function DashboardLiveGrid({
   branchCode,
   initial,
   canEndSessions,
+  hourlyPriceCentsByGameTypeCode,
+  gameTypeIdByCode,
 }: {
   branchCode: string;
   initial?: PublicVenueState;
   canEndSessions: boolean;
+  hourlyPriceCentsByGameTypeCode: Record<string, number | null>;
+  gameTypeIdByCode: Record<string, string>;
 }) {
   const { t } = useT();
 
@@ -31,9 +35,11 @@ export function DashboardLiveGrid({
   };
 
   return (
-    <LiveStationGrid
+    <NeonStationGrid
       branchCode={branchCode}
       initial={initial}
+      hourlyPriceCentsByGameTypeCode={hourlyPriceCentsByGameTypeCode}
+      gameTypeIdByCode={gameTypeIdByCode}
       onStationConfirmEnd={canEndSessions ? onConfirmEnd : undefined}
     />
   );

@@ -1,5 +1,7 @@
 import { notFound } from 'next/navigation';
 import { resolveBranchByCode, getPublicVenueState } from '@/lib/venue';
+import { computeSessionPrice } from '@/lib/cashier';
+import { getQueueableGameTypes } from '@/lib/queue';
 import { PublicLiveGrid } from './actions';
 import { AmbientBackground } from '@/components/venue/ambient-background';
 import { MapPin } from 'lucide-react';
@@ -7,6 +9,8 @@ import { getServerDict } from '@/i18n/server';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
+const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
 interface PageProps {
   params: Promise<{ branchCode: string }>;
@@ -34,6 +38,25 @@ export default async function PublicVenuePage({ params }: PageProps) {
 
   const { d } = await getServerDict();
 
+  // Real hourly price per game type present at this branch — computed from
+  // our actual pricing rules for the category cards, not hardcoded.
+  const gameTypes = await getQueueableGameTypes(DEMO_TENANT_ID);
+  const gameTypeByCode = new Map(gameTypes.map((g) => [g.code, g]));
+  const presentCodes = [...new Set(initialState.stations.map((s) => s.game_type_code))];
+  const priceEntries = await Promise.all(
+    presentCodes.map(async (code): Promise<[string, number | null]> => {
+      const gt = gameTypeByCode.get(code);
+      if (!gt) return [code, null];
+      try {
+        const cents = await computeSessionPrice({ gameTypeId: gt.id, durationMinutes: 60, branchId });
+        return [code, cents];
+      } catch {
+        return [code, null];
+      }
+    }),
+  );
+  const hourlyPriceCentsByGameTypeCode = Object.fromEntries(priceEntries);
+
   return (
     <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
       <AmbientBackground />
@@ -53,7 +76,7 @@ export default async function PublicVenuePage({ params }: PageProps) {
         )}
       </header>
 
-      <PublicLiveGrid branchCode={branchCode} initial={initialState ?? undefined} />
+      <PublicLiveGrid branchCode={branchCode} initial={initialState ?? undefined} hourlyPriceCentsByGameTypeCode={hourlyPriceCentsByGameTypeCode} />
     </div>
   );
 }

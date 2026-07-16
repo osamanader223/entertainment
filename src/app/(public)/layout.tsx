@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useT } from '@/i18n/context';
 import { LanguageToggle } from '@/components/language-toggle';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   const { t } = useT();
@@ -15,6 +16,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
             BOLOS ALLEY
           </Link>
           <div className="flex items-center gap-3 text-sm">
+            <ThemeToggle />
             <LanguageToggle />
             <Link href="/login" className="text-muted-foreground hover:text-foreground transition-colors">
               {t('venue.signIn')}

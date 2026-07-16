@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { LanguageToggle } from '@/components/language-toggle';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -8,7 +9,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <Link href="/" className="text-xl font-extrabold text-gradient-gold">
           BOLOS ALLEY OS
         </Link>
-        <LanguageToggle />
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <LanguageToggle />
+        </div>
       </header>
       <main className="flex-1 flex items-center justify-center px-6 pb-12">
         <div className="w-full max-w-md">{children}</div>
