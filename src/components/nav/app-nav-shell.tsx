@@ -13,6 +13,7 @@ import {
   ArrowLeft, LogOut, HelpCircle,
   Home, CalendarCheck, Wallet, User,
   LayoutDashboard, BarChart3, Tag, DollarSign, Monitor, Users, UserSquare2, MessageCircle, Settings,
+  Banknote, Globe,
 } from 'lucide-react';
 import { useT } from '@/i18n/context';
 import { cn } from '@/lib/utils';
@@ -36,6 +37,8 @@ const ICONS = {
   customers: UserSquare2,
   messages: MessageCircle,
   settings: Settings,
+  cashier: Banknote,
+  publicView: Globe,
 } as const;
 
 export type NavIconName = keyof typeof ICONS;
