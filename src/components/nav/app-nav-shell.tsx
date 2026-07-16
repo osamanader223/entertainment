@@ -9,19 +9,49 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ComponentType } from 'react';
-import { ArrowLeft, LogOut } from 'lucide-react';
+import {
+  ArrowLeft, LogOut, HelpCircle,
+  Home, CalendarCheck, Wallet, User,
+  LayoutDashboard, BarChart3, Tag, DollarSign, Monitor, Users, UserSquare2, MessageCircle, Settings,
+} from 'lucide-react';
 import { useT } from '@/i18n/context';
 import { cn } from '@/lib/utils';
 import { LanguageToggle } from '@/components/language-toggle';
+
+// Server Components can't pass component/function values across the
+// server->client boundary (they're not serializable) — so layouts pass an
+// icon NAME (string) instead, and this registry (which only ever lives in
+// this client component) resolves it to the actual component at render time.
+const ICONS = {
+  home: Home,
+  bookings: CalendarCheck,
+  wallet: Wallet,
+  profile: User,
+  adminHome: LayoutDashboard,
+  analytics: BarChart3,
+  offers: Tag,
+  pricing: DollarSign,
+  stations: Monitor,
+  staff: Users,
+  customers: UserSquare2,
+  messages: MessageCircle,
+  settings: Settings,
+} as const;
+
+export type NavIconName = keyof typeof ICONS;
 
 export interface AppNavItem {
   key: string;
   href: string;
   label: string;
-  icon: ComponentType<{ className?: string }>;
+  icon: NavIconName;
   /** Exact match only (e.g. the home route) — otherwise active on any nested path under href. */
   exact?: boolean;
+}
+
+function NavIcon({ name, className }: { name: NavIconName; className?: string }) {
+  const Icon = ICONS[name] ?? HelpCircle;
+  return <Icon className={className} />;
 }
 
 interface AppNavShellProps {
@@ -77,7 +107,7 @@ export function AppNavShell({ items, userName, subtitle, adminBadge, backToAppHr
                     : 'border border-transparent text-[color:var(--neon-text-mid)] hover:text-[color:var(--neon-text-hi)]',
                 )}
               >
-                <item.icon className="h-5 w-5 shrink-0" />
+                <NavIcon name={item.icon} className="h-5 w-5 shrink-0" />
                 {item.label}
               </Link>
             );
@@ -126,7 +156,7 @@ export function AppNavShell({ items, userName, subtitle, adminBadge, backToAppHr
                       : 'border-transparent text-[color:var(--neon-text-mid)] hover:text-[color:var(--neon-text-hi)]',
                   )}
                 >
-                  <item.icon className="h-4.5 w-4.5" />
+                  <NavIcon name={item.icon} className="h-4.5 w-4.5" />
                   {item.label}
                 </Link>
               );
@@ -179,7 +209,7 @@ export function AppNavShell({ items, userName, subtitle, adminBadge, backToAppHr
                 active ? 'text-[color:var(--neon-cyan)]' : 'text-[color:var(--neon-text-lo)]',
               )}
             >
-              <item.icon className="h-6 w-6" />
+              <NavIcon name={item.icon} className="h-6 w-6" />
               <span className="truncate max-w-[70px]">{item.label}</span>
             </Link>
           );
