@@ -1,15 +1,16 @@
 'use client';
 
-// Public venue board (/v/[branchCode]) — same neon two-step (category ->
-// station) pattern as the customer dashboard's NeonStationGrid, but fully
-// anonymized: no prices tied to an account, no booking deep-link — tapping
-// anything redirects to sign-in, exactly like the board's previous behavior.
-// Deliberately separate from NeonStationGrid (auth-gated deep links) and from
-// LiveStationGrid/StationCard (shared with the cashier station picker).
+// Public venue board (/v/[branchCode]) — shows every active station at
+// once, grouped under game-type section headers. Deliberately NOT the
+// two-step category->station click-through the customer dashboard uses
+// (NeonStationGrid) — a public passerby glancing at a board wants the whole
+// picture at once, not a tap-to-drill-down flow. Anonymized: no prices tied
+// to an account, no booking deep-link — tapping anything redirects to
+// sign-in. Deliberately separate from NeonStationGrid (auth-gated deep
+// links) and from LiveStationGrid/StationCard (shared with the cashier
+// station picker).
 
-import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
 import type { PublicStation, PublicVenueState } from '@/lib/venue';
 import { useLiveVenueState } from '@/hooks/useLiveVenueState';
 import { cn, formatMoney } from '@/lib/utils';
@@ -22,15 +23,6 @@ interface Props {
   onStationSelect: (station: PublicStation) => void;
   onJoinQueue: (gameTypeCode: string, gameTypeNameAr: string, gameTypeNameEn: string) => void;
 }
-
-const STATION_IMAGE_BY_CODE: Record<string, string> = {
-  pool: '/images/stations/station-billiards.png',
-  bowling: '/images/stations/station-bowling.png',
-  ps5: '/images/stations/station-ps5.png',
-  ping_pong: '/images/stations/station-tabletennis.png',
-  foosball: '/images/stations/station-foosball.png',
-  karaoke: '/images/stations/station-karaoke.png',
-};
 
 interface CategoryGroup {
   code: string;
@@ -51,8 +43,10 @@ const STATUS_META: Record<PublicStation['status'], { labelKey: string; color: st
 export function PublicStationGrid({ branchCode, initial, hourlyPriceCentsByGameTypeCode, onStationSelect, onJoinQueue }: Props) {
   const { t, locale } = useT();
   const { state } = useLiveVenueState(branchCode, initial);
-  const [selectedCode, setSelectedCode] = useState<string | null>(null);
 
+  // Stations arrive pre-sorted by game_types.sort_order (see
+  // get_public_venue_state's `order by gt.sort_order, s.code`), so building
+  // this map by iteration order already yields the correct section order.
   const categories = useMemo<CategoryGroup[]>(() => {
     if (!state) return [];
     const map = new Map<string, CategoryGroup>();
@@ -65,96 +59,58 @@ export function PublicStationGrid({ branchCode, initial, hourlyPriceCentsByGameT
     return Array.from(map.values());
   }, [state]);
 
-  useEffect(() => {
-    if (selectedCode && !categories.some((c) => c.code === selectedCode)) setSelectedCode(null);
-  }, [categories, selectedCode]);
-
   if (!state) {
     return (
-      <div className="neon-theme grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
-        {[1, 2, 3, 4].map((j) => (
-          <div key={j} className="h-[220px] rounded-[20px] border border-[#241B39] bg-[color:var(--neon-surface-1)] animate-pulse" />
+      <div className="neon-theme flex flex-col gap-8">
+        {[1, 2].map((section) => (
+          <div key={section} className="flex flex-col gap-3">
+            <div className="h-6 w-40 rounded bg-[color:var(--neon-surface-1)] animate-pulse" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
+              {[1, 2, 3, 4].map((j) => (
+                <div key={j} className="h-[212px] rounded-[20px] border border-[#241B39] bg-[color:var(--neon-surface-1)] animate-pulse" />
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     );
   }
 
-  const selected = categories.find((c) => c.code === selectedCode) ?? null;
-
   return (
-    <div className="neon-theme">
-      {!selected ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
-          {categories.map((cat) => {
-            const image = STATION_IMAGE_BY_CODE[cat.code];
-            const availableCount = cat.stations.filter((s) => s.status === 'available').length;
-            const name = locale === 'ar' ? (cat.nameAr || cat.nameEn) : cat.nameEn;
-            const priceCents = hourlyPriceCentsByGameTypeCode[cat.code] ?? null;
-            const priceLabel = priceCents !== null ? formatMoney(priceCents).replace(/[^\d.,]/g, '') : '—';
-            return (
-              <button
-                key={cat.code}
-                type="button"
-                onClick={() => setSelectedCode(cat.code)}
-                className="rounded-[20px] border border-[#241B39] overflow-hidden flex flex-col text-start"
-                style={{ background: 'var(--neon-surface-card-2)' }}
-              >
-                <div className="relative h-[158px] overflow-hidden w-full">
-                  {image ? (
-                    <Image src={image} alt="" fill sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw" className="object-cover" />
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center text-4xl" style={{ background: 'linear-gradient(160deg,#1E1730,#120E1E)' }} aria-hidden>
-                      {cat.icon ?? '🎮'}
-                    </div>
-                  )}
-                  <span className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(10,8,18,.9), transparent 60%)' }} />
-                  <span
-                    className="absolute top-3 end-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold backdrop-blur-md border"
-                    style={{
-                      background: 'rgba(6,6,10,.72)',
-                      borderColor: availableCount > 0 ? 'rgba(47,243,243,.4)' : 'rgba(245,196,81,.4)',
-                      color: availableCount > 0 ? 'var(--neon-cyan)' : 'var(--neon-gold)',
-                    }}
-                  >
-                    <span className="h-[7px] w-[7px] rounded-full" style={{ background: availableCount > 0 ? 'var(--neon-cyan)' : 'var(--neon-gold)' }} />
-                    {availableCount > 0 ? t('dashboard.nAvailable', { n: String(availableCount) }) : t('dashboard.statusWaitlist')}
-                  </span>
-                  <span className="absolute bottom-3 text-[19px] font-extrabold text-white" style={{ textShadow: '0 2px 12px rgba(0,0,0,.8)', insetInlineStart: 14 }}>
-                    {name}
-                  </span>
-                </div>
-                <div className="p-4 flex items-baseline gap-1.5">
-                  <span className="font-neon-display font-bold text-2xl tabular-nums" style={{ color: 'var(--neon-cyan-lt)' }}>{priceLabel}</span>
-                  <span className="text-[13px] font-bold text-[color:var(--neon-text-mid)]">{t('dashboard.pricePerHour')}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setSelectedCode(null)}
-              className="inline-flex items-center gap-1.5 text-sm font-bold rounded-full border px-3 py-1.5"
-              style={{ borderColor: '#241E36', color: 'var(--neon-text-mid)', background: '#111018' }}
-            >
-              <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
-              {t('dashboard.allGamesBack')}
-            </button>
-            <span className="text-lg font-extrabold text-[color:var(--neon-text-hi)]">
-              {locale === 'ar' ? (selected.nameAr || selected.nameEn) : selected.nameEn}
-            </span>
-          </div>
+    <div className="neon-theme flex flex-col gap-8">
+      {categories.map((cat) => {
+        const name = locale === 'ar' ? (cat.nameAr || cat.nameEn) : cat.nameEn;
+        const availableCount = cat.stations.filter((s) => s.status === 'available').length;
+        const priceCents = hourlyPriceCentsByGameTypeCode[cat.code] ?? null;
+        const priceLabel = priceCents !== null ? formatMoney(priceCents).replace(/[^\d.,]/g, '') : null;
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
-            {selected.stations.map((s) => (
-              <PublicStationCard key={s.id} station={s} onStationSelect={onStationSelect} onJoinQueue={onJoinQueue} />
-            ))}
-          </div>
-        </div>
-      )}
+        return (
+          <section key={cat.code}>
+            <div className="flex items-center justify-between gap-3 mb-3.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xl" aria-hidden>{cat.icon ?? '🎮'}</span>
+                <span className="text-lg font-extrabold text-[color:var(--neon-text-hi)]">{name}</span>
+              </div>
+              <div className="flex items-center gap-3 text-[13px] font-bold shrink-0">
+                {priceLabel && (
+                  <span style={{ color: 'var(--neon-text-mid)' }}>
+                    <span className="font-neon-display" style={{ color: 'var(--neon-cyan-lt)' }}>{priceLabel}</span> {t('dashboard.pricePerHour')}
+                  </span>
+                )}
+                <span style={{ color: availableCount > 0 ? 'var(--neon-cyan)' : 'var(--neon-gold)' }}>
+                  {availableCount > 0 ? t('dashboard.nAvailable', { n: String(availableCount) }) : t('dashboard.statusWaitlist')}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr items-stretch">
+              {cat.stations.map((s) => (
+                <PublicStationCard key={s.id} station={s} onStationSelect={onStationSelect} onJoinQueue={onJoinQueue} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

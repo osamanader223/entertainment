@@ -7,6 +7,7 @@ import { resolveOfferForCheckout, recordOfferRedemption } from '@/lib/offers';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 import { fireNotification } from '@/lib/notifications';
 import { isStationFreeForWindow } from '@/lib/station-overlap';
+import { computeBowlingDuration } from '@/lib/bowling';
 import {
   generateSlotsForVenueDay,
   computeSlotAvailability,
@@ -318,6 +319,9 @@ export interface CreateScheduledBookingArgs {
   scheduledStartAt: string; // ISO datetime
   durationMinutes: number;
   offerCode?: string;
+  /** Bowling only — durationMinutes above must already be computeBowlingDuration()'s result. */
+  playerCount?: number;
+  gameCount?: number;
 }
 
 export interface CreateScheduledBookingResult {
@@ -345,6 +349,8 @@ export async function createScheduledBooking({
   scheduledStartAt,
   durationMinutes,
   offerCode,
+  playerCount,
+  gameCount,
 }: CreateScheduledBookingArgs): Promise<CreateScheduledBookingResult> {
   const admin = createAdminClient();
 
@@ -392,7 +398,7 @@ export async function createScheduledBooking({
   const isFree = await isStationFreeForWindow(stationId, startDate.toISOString(), endDate.toISOString());
   if (!isFree) throw new Error('slot_unavailable');
 
-  const amountCents = await computeSessionPrice({ gameTypeId: station.game_type_id, durationMinutes, branchId });
+  const amountCents = await computeSessionPrice({ gameTypeId: station.game_type_id, durationMinutes, branchId, playerCount, gameCount });
 
   const offerResult = await resolveOfferForCheckout({
     tenantId,
@@ -451,6 +457,8 @@ export async function createScheduledBooking({
       station_id: stationId,
       duration_mode: 'custom',
       duration_minutes: durationMinutes,
+      player_count: playerCount ?? 1,
+      game_count: gameCount ?? null,
       scheduled_start_at: startDate.toISOString(),
       scheduled_end_at: endDate.toISOString(),
       status: 'confirmed',
@@ -458,7 +466,7 @@ export async function createScheduledBooking({
       source: 'app',
       wallet_paid_cents: chargedCents,
       held_payment_id: payment.id,
-    })
+    } as never)
     .select('id, reference_code')
     .single();
   if (bookingError || !booking) throw bookingError ?? new Error('Failed to create booking');
@@ -575,7 +583,7 @@ export async function startScheduledBookingSession(
 
   const { data: booking, error } = await admin
     .from('bookings')
-    .select('id, branch_id, station_id, customer_id, duration_minutes, wallet_paid_cents, status, held_payment_id')
+    .select('id, branch_id, station_id, game_type_id, customer_id, duration_minutes, player_count, game_count, wallet_paid_cents, status, held_payment_id')
     .eq('id', bookingId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -598,6 +606,20 @@ export async function startScheduledBookingSession(
 
   const startedAt = new Date().toISOString();
 
+  // Re-derive the predicted duration at start time (not just carried over
+  // from booking time) — training data for the future learning engine
+  // should reflect the formula as it stood right before the session began.
+  let predictedDurationMinutes: number | null = null;
+  if (booking.game_count) {
+    const bowling = await computeBowlingDuration({
+      tenantId,
+      gameTypeId: booking.game_type_id,
+      playerCount: booking.player_count ?? 1,
+      gameCount: booking.game_count as 1 | 2,
+    });
+    predictedDurationMinutes = bowling.predicted;
+  }
+
   const { data: session, error: sessionError } = await admin
     .from('sessions')
     .insert({
@@ -609,9 +631,11 @@ export async function startScheduledBookingSession(
       planned_duration_seconds: (booking.duration_minutes ?? 60) * 60,
       started_at: startedAt,
       status: 'active',
-      player_count: 1,
+      player_count: booking.player_count ?? 1,
+      game_count: booking.game_count ?? null,
+      predicted_duration_minutes: predictedDurationMinutes,
       booking_id: booking.id,
-    })
+    } as never)
     .select('id')
     .single();
   if (sessionError || !session) throw sessionError ?? new Error('Failed to create session');

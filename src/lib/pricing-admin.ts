@@ -197,3 +197,106 @@ export async function deletePricingRule(
 
   if (error) throw error;
 }
+
+// =====================================================================
+// GAME DURATION PARAMS — bowling's (and any future player/game-count-based
+// game type's) duration formula coefficients. See lib/bowling.ts for the
+// formula itself.
+// =====================================================================
+
+export interface GameDurationParamsRow {
+  id: string;
+  tenantId: string;
+  gameTypeId: string;
+  gameTypeNameEn: string;
+  gameTypeNameAr: string;
+  baseMinutes: number;
+  minutesPerPlayerPerGame: number;
+  minMinutes: number;
+  maxMinutes: number;
+}
+
+/** Every game type that has (or could have) duration-formula coefficients — join in the row if it exists, or defaults if not. */
+export async function listGameDurationParams(tenantId: string): Promise<GameDurationParamsRow[]> {
+  const admin = createAdminClient();
+
+  const [{ data: gameTypesRaw, error: gtError }, { data: paramsRaw, error: paramsError }] = await Promise.all([
+    admin
+      .from('game_types')
+      .select('id, display_name_en, display_name_ar, code')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('sort_order'),
+    admin
+      .from('game_duration_params')
+      .select('id, game_type_id, base_minutes, minutes_per_player_per_game, min_minutes, max_minutes')
+      .eq('tenant_id', tenantId),
+  ]);
+  if (gtError) throw gtError;
+  if (paramsError) throw paramsError;
+
+  const paramsByGameType = new Map((paramsRaw ?? []).map((p) => [p.game_type_id, p]));
+
+  // Only game types that already have a coefficients row, or whose code
+  // looks bowling-like — no point cluttering the editor with every game type.
+  return (gameTypesRaw ?? [])
+    .filter((gt) => paramsByGameType.has(gt.id) || gt.code.toLowerCase().includes('bowl'))
+    .map((gt) => {
+      const p = paramsByGameType.get(gt.id);
+      return {
+        id: p?.id ?? '',
+        tenantId,
+        gameTypeId: gt.id,
+        gameTypeNameEn: gt.display_name_en,
+        gameTypeNameAr: gt.display_name_ar,
+        baseMinutes: p?.base_minutes ?? 10,
+        minutesPerPlayerPerGame: p ? Number(p.minutes_per_player_per_game) : 9,
+        minMinutes: p?.min_minutes ?? 20,
+        maxMinutes: p?.max_minutes ?? 180,
+      };
+    });
+}
+
+export interface UpsertGameDurationParamsInput {
+  tenantId: string;
+  gameTypeId: string;
+  baseMinutes: number;
+  minutesPerPlayerPerGame: number;
+  minMinutes: number;
+  maxMinutes: number;
+  actorId: string;
+}
+
+export async function upsertGameDurationParams(input: UpsertGameDurationParamsInput): Promise<void> {
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from('game_duration_params')
+    .upsert(
+      {
+        tenant_id: input.tenantId,
+        game_type_id: input.gameTypeId,
+        base_minutes: input.baseMinutes,
+        minutes_per_player_per_game: input.minutesPerPlayerPerGame,
+        min_minutes: input.minMinutes,
+        max_minutes: input.maxMinutes,
+      },
+      { onConflict: 'tenant_id,game_type_id' },
+    );
+  if (error) throw error;
+
+  await admin.from('activity_log').insert({
+    tenant_id: input.tenantId,
+    actor_id: input.actorId,
+    actor_role: 'manager' as never,
+    action: 'game_duration_params.updated',
+    entity_type: 'game_duration_params',
+    entity_id: input.gameTypeId,
+    after: {
+      base_minutes: input.baseMinutes,
+      minutes_per_player_per_game: input.minutesPerPlayerPerGame,
+      min_minutes: input.minMinutes,
+      max_minutes: input.maxMinutes,
+    } as never,
+  });
+}

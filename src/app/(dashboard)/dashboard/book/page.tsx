@@ -3,7 +3,7 @@ import { getWalletBalance } from '@/lib/wallet';
 import { resolveBranchByCode, getPublicVenueState } from '@/lib/venue';
 import { BookingFlow } from '@/components/booking/booking-flow';
 
-export const metadata = { title: 'Book a station' };
+export const metadata = { title: 'Book your Game' };
 export const dynamic = 'force-dynamic';
 
 const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111';

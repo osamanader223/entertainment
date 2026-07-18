@@ -49,7 +49,9 @@ export async function endActiveSessionForStation({
       ended_at: now.toISOString(),
       ended_by: endedBy,
       actual_duration_seconds: actualDurationSeconds,
-    })
+      // Training data for the future duration-learning engine (see lib/bowling.ts).
+      actual_duration_minutes: Math.round(actualDurationSeconds / 60),
+    } as never)
     .eq('id', session.id);
 
   if (updateError) throw updateError;

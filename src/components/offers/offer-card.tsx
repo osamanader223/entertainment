@@ -11,7 +11,7 @@ import { Copy, Check } from 'lucide-react';
 // Compact scoreboard-style badge text, matching the handoff mockup exactly
 // (e.g. "-25%", "-40%", "2x") — distinct from the longer "25% OFF" sentence
 // form used elsewhere in the app (discount-format.ts).
-function compactBadgeText(discountType: string, discountValue: number): string {
+export function compactBadgeText(discountType: string, discountValue: number): string {
   switch (discountType) {
     case 'percent': return `-${discountValue}%`;
     case 'fixed': return `-${formatMoney(discountValue)}`;

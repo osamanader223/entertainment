@@ -275,6 +275,24 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['pricing_rules']['Row']>;
         Relationships: [];
       };
+      game_duration_params: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          game_type_id: string;
+          base_minutes: number;
+          minutes_per_player_per_game: number;
+          min_minutes: number;
+          max_minutes: number;
+          updated_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['game_duration_params']['Row']> & {
+          tenant_id: string;
+          game_type_id: string;
+        };
+        Update: Partial<Database['public']['Tables']['game_duration_params']['Row']>;
+        Relationships: [];
+      };
       bookings: {
         Row: {
           id: string;
@@ -284,6 +302,7 @@ export interface Database {
           game_type_id: string;
           station_id: string | null;
           player_count: number;
+          game_count: number | null;
           duration_mode: Database['public']['Enums']['duration_mode'];
           duration_minutes: number | null;
           scheduled_start_at: string;
@@ -329,6 +348,7 @@ export interface Database {
           booking_id: string | null;
           customer_id: string | null;
           player_count: number;
+          game_count: number | null;
           customer_label: string | null;
           duration_mode: Database['public']['Enums']['duration_mode'];
           planned_duration_seconds: number | null;
@@ -341,6 +361,8 @@ export interface Database {
           resumed_from_session_id: string | null;
           status: Database['public']['Enums']['session_status'];
           actual_duration_seconds: number | null;
+          predicted_duration_minutes: number | null;
+          actual_duration_minutes: number | null;
           final_amount_cents: number | null;
           alert_fired: boolean;
           ended_at: string | null;

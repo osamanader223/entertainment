@@ -1,9 +1,10 @@
 import { requireAuth, userHasAnyRole } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { listPricingRules } from '@/lib/pricing-admin';
+import { listPricingRules, listGameDurationParams } from '@/lib/pricing-admin';
 import { getServerDict } from '@/i18n/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { PricingManager } from '@/components/admin/pricing-manager';
+import { DurationParamsManager } from '@/components/admin/duration-params-manager';
 
 export const metadata = { title: 'Admin — Pricing' };
 export const dynamic = 'force-dynamic';
@@ -18,7 +19,7 @@ export default async function AdminPricingPage() {
   const { d } = await getServerDict();
 
   const admin = createAdminClient();
-  const [rules, gameTypesRaw] = await Promise.all([
+  const [rules, gameTypesRaw, durationParams] = await Promise.all([
     listPricingRules(DEMO_TENANT_ID),
     admin
       .from('game_types')
@@ -26,6 +27,7 @@ export default async function AdminPricingPage() {
       .eq('tenant_id', DEMO_TENANT_ID)
       .eq('is_active', true)
       .order('display_name_en'),
+    listGameDurationParams(DEMO_TENANT_ID),
   ]);
 
   const gameTypes = (gameTypesRaw.data ?? []) as unknown as Array<{
@@ -41,6 +43,7 @@ export default async function AdminPricingPage() {
         <p className="text-muted-foreground mt-1">{d.admin.pricingSubtitle}</p>
       </div>
       <PricingManager initialRules={rules} gameTypes={gameTypes} />
+      <DurationParamsManager initialRows={durationParams} />
     </div>
   );
 }

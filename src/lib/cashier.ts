@@ -73,15 +73,24 @@ export async function createWalkInCustomer({
 /**
  * Compute the price (in halalas) for a session of a given game type and duration.
  * Picks the highest-priority active pricing rule, preferring branch-specific rules.
+ *
+ * playerCount/gameCount only matter for the 'per_player_hour' unit — despite
+ * the legacy name, it's used as a true per-player-per-game rate (e.g.
+ * bowling's 30 SAR/player-game), not an hourly one. Every other unit ignores
+ * them entirely.
  */
 export async function computeSessionPrice({
   gameTypeId,
   durationMinutes,
   branchId,
+  playerCount = 1,
+  gameCount = 1,
 }: {
   gameTypeId: string;
   durationMinutes: number;
   branchId: string;
+  playerCount?: number;
+  gameCount?: number;
 }): Promise<number> {
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -113,8 +122,10 @@ export async function computeSessionPrice({
     case 'per_session':
       amount = rule.amount_cents;
       break;
-    case 'per_hour':
     case 'per_player_hour':
+      amount = rule.amount_cents * playerCount * gameCount;
+      break;
+    case 'per_hour':
     default:
       amount = rule.amount_cents * hours;
       break;
@@ -131,9 +142,13 @@ export async function computeSessionPrice({
 export async function computeSessionPriceForStation({
   stationId,
   durationMinutes,
+  playerCount,
+  gameCount,
 }: {
   stationId: string;
   durationMinutes: number;
+  playerCount?: number;
+  gameCount?: number;
 }): Promise<number> {
   const admin = createAdminClient();
   const { data: station, error } = await admin
@@ -148,6 +163,8 @@ export async function computeSessionPriceForStation({
     gameTypeId: station.game_type_id,
     durationMinutes,
     branchId: station.branch_id,
+    playerCount,
+    gameCount,
   });
 }
 
@@ -160,6 +177,10 @@ export interface StartCashierSessionArgs {
   durationMinutes: number;
   paymentMethod: 'cash' | 'wallet';
   actorId: string;
+  /** Bowling only — resolved by the caller via computeBowlingDuration(). */
+  playerCount?: number;
+  gameCount?: number;
+  predictedDurationMinutes?: number;
 }
 
 export interface StartCashierSessionResult {
@@ -182,6 +203,9 @@ export async function startCashierSession({
   durationMinutes,
   paymentMethod,
   actorId,
+  playerCount,
+  gameCount,
+  predictedDurationMinutes,
 }: StartCashierSessionArgs): Promise<StartCashierSessionResult> {
   const admin = createAdminClient();
 
@@ -207,6 +231,8 @@ export async function startCashierSession({
     gameTypeId: station.game_type_id,
     durationMinutes,
     branchId,
+    playerCount,
+    gameCount,
   });
 
   const { data: profile } = await admin
@@ -261,8 +287,10 @@ export async function startCashierSession({
       duration_mode: 'custom',
       planned_duration_seconds: durationMinutes * 60,
       status: 'active',
-      player_count: 1,
-    })
+      player_count: playerCount ?? 1,
+      game_count: gameCount ?? null,
+      predicted_duration_minutes: predictedDurationMinutes ?? null,
+    } as never)
     .select('id')
     .single();
 

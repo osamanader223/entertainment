@@ -19,6 +19,7 @@ import {
   getBookingContextAction,
   getGameTypeSlotsAction,
   createScheduledBookingAction,
+  computeBowlingDurationAction,
 } from '@/app/(dashboard)/dashboard/book/actions';
 import { useT } from '@/i18n/context';
 
@@ -136,8 +137,11 @@ export function BookingFlow({
   // this one station until the customer picks a different game/date/duration.
   const [preselectStationId, setPreselectStationId] = useState<string | null>(initialStationId ?? null);
 
-  // ==================== Step 2 — duration ====================
+  // ==================== Step 2 — duration (or players/games for bowling) ====================
   const [duration, setDuration] = useState<number | null>(null);
+  const [playerCount, setPlayerCount] = useState(2);
+  const [gameCount, setGameCount] = useState<1 | 2>(1);
+  const [bowlingDurationPending, startBowlingDuration] = useTransition();
 
   // ==================== Venue hours (loaded once) ====================
   const [bookingContext, setBookingContext] = useState<{ opensAt: string; closesAt: string; timezone: string; todayVenueDate: string } | null>(null);
@@ -190,6 +194,23 @@ export function BookingFlow({
     return Array.from({ length: DATE_STRIP_DAYS }, (_, i) => addDaysToDateString(bookingContext.todayVenueDate, i));
   }, [bookingContext]);
 
+  // Bowling isn't time-based — players + single/double game drive the
+  // duration formula instead of a duration button click.
+  const selectedGameType = useMemo(
+    () => gameTypes.find((gt) => gt.id === selectedGameTypeId) ?? null,
+    [gameTypes, selectedGameTypeId],
+  );
+  const isBowling = !!selectedGameType?.code?.toLowerCase().includes('bowl');
+
+  useEffect(() => {
+    if (!isBowling || !selectedGameTypeId) return;
+    startBowlingDuration(async () => {
+      const res = await computeBowlingDurationAction({ gameTypeId: selectedGameTypeId, playerCount, gameCount });
+      if (res.ok) setDuration(res.durationMinutes);
+      else toast.error(res.error);
+    });
+  }, [isBowling, selectedGameTypeId, playerCount, gameCount]);
+
   // Fetch the slot grid whenever game type / date / duration changes.
   useEffect(() => {
     setStationSlots([]);
@@ -214,11 +235,16 @@ export function BookingFlow({
       return;
     }
     startPrice(async () => {
-      const res = await getBookingPriceAction({ stationId: selectedStationId, durationMinutes: duration });
+      const res = await getBookingPriceAction({
+        stationId: selectedStationId,
+        durationMinutes: duration,
+        playerCount: isBowling ? playerCount : undefined,
+        gameCount: isBowling ? gameCount : undefined,
+      });
       if (res.error) { setPrice(null); toast.error(res.error); return; }
       setPrice(res.amountCents ?? null);
     });
-  }, [selectedStationId, duration]);
+  }, [selectedStationId, duration, isBowling, playerCount, gameCount]);
 
   useEffect(() => {
     if (!price || !selectedStationId || !duration) {
@@ -226,10 +252,16 @@ export function BookingFlow({
       return;
     }
     startOffer(async () => {
-      const res = await previewOfferAction({ stationId: selectedStationId, durationMinutes: duration, code: activeCode ?? undefined });
+      const res = await previewOfferAction({
+        stationId: selectedStationId,
+        durationMinutes: duration,
+        code: activeCode ?? undefined,
+        playerCount: isBowling ? playerCount : undefined,
+        gameCount: isBowling ? gameCount : undefined,
+      });
       setOfferPreview(res as OfferPreview);
     });
-  }, [price, selectedStationId, duration, activeCode]);
+  }, [price, selectedStationId, duration, activeCode, isBowling, playerCount, gameCount]);
 
   const finalPrice = offerPreview?.applied ? offerPreview.finalAmountCents : price;
   const insufficientFunds = finalPrice !== null && walletBalance < finalPrice;
@@ -255,6 +287,7 @@ export function BookingFlow({
   const handleSelectGameType = (id: string) => {
     setSelectedGameTypeId(id);
     if (id !== initialGameTypeId) setPreselectStationId(null);
+    setDuration(null);
     setConfirmation(null);
   };
   const handleSelectDuration = (min: number) => {
@@ -288,6 +321,8 @@ export function BookingFlow({
         scheduledStartAt: selectedSlotStart,
         durationMinutes: duration,
         offerCode: activeCode ?? undefined,
+        playerCount: isBowling ? playerCount : undefined,
+        gameCount: isBowling ? gameCount : undefined,
       });
       if (!res.ok) {
         toast.error(translateReason(t, 'scheduling', res.error));
@@ -349,19 +384,64 @@ export function BookingFlow({
           <CardTitle className="text-lg">{t('slots.step2')}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-            {DURATIONS.map((min) => (
-              <Button
-                key={min}
-                type="button"
-                variant={duration === min ? 'gold' : 'outline'}
-                size="xl"
-                onClick={() => handleSelectDuration(min)}
-              >
-                {t(DURATION_LABEL_KEY[min])}
-              </Button>
-            ))}
-          </div>
+          {isBowling ? (
+            <div className="space-y-5">
+              <div>
+                <div className="text-sm font-medium mb-2">{t('slots.howManyPlayers')}</div>
+                <div className="flex items-center gap-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={playerCount <= 1}
+                    onClick={() => setPlayerCount((p) => Math.max(1, p - 1))}
+                  >
+                    −
+                  </Button>
+                  <span className="text-2xl font-bold tabular-nums w-8 text-center">{playerCount}</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={playerCount >= 8}
+                    onClick={() => setPlayerCount((p) => Math.min(8, p + 1))}
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-medium mb-2">{t('slots.singleOrDoubleGame')}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant={gameCount === 1 ? 'gold' : 'outline'} size="xl" onClick={() => setGameCount(1)}>
+                    {t('slots.singleGame')}
+                  </Button>
+                  <Button type="button" variant={gameCount === 2 ? 'gold' : 'outline'} size="xl" onClick={() => setGameCount(2)}>
+                    {t('slots.doubleGame')}
+                  </Button>
+                </div>
+              </div>
+              {bowlingDurationPending ? (
+                <div className="text-xs text-muted-foreground">{t('slots.loadingSlots')}</div>
+              ) : duration !== null ? (
+                <div className="text-xs text-muted-foreground">{t('slots.estimatedDuration', { minutes: String(duration) })}</div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+              {DURATIONS.map((min) => (
+                <Button
+                  key={min}
+                  type="button"
+                  variant={duration === min ? 'gold' : 'outline'}
+                  size="xl"
+                  onClick={() => handleSelectDuration(min)}
+                >
+                  {t(DURATION_LABEL_KEY[min])}
+                </Button>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

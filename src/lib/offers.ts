@@ -1,5 +1,6 @@
 import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
 
 export interface OfferRow {
   id: string;
@@ -682,4 +683,94 @@ export async function getCustomerOffers(input: {
   }
 
   return { eligible, locked };
+}
+
+export interface PublicOfferCard {
+  id: string;
+  title: string;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
+  discountType: 'percent' | 'fixed' | 'free_minutes' | 'double_points';
+  discountValue: number;
+  code: string | null;
+  isAutoApply: boolean;
+  gameTypeNameEn: string | null;
+  gameTypeNameAr: string | null;
+  minTier: string | null;
+  imageUrl: string | null;
+}
+
+/**
+ * Offers for the unauthenticated public venue board — active, within their
+ * validity window, and not globally exhausted. Tier-gated offers ARE
+ * included (as teasers, keyed by minTier) since there's no customer to
+ * check eligibility against; the caller renders those with the locked
+ * treatment. Never includes per-customer redemption counts or eligibility —
+ * that's getCustomerOffers, which requires a signed-in customerId.
+ *
+ * Uses the regular (anon-key) client, not the admin client — the
+ * "offers_read" RLS policy already allows anyone to read is_active rows
+ * directly (`using (is_tenant_member(tenant_id) or is_active)`), confirmed
+ * live against the anon key. No new RLS policy needed.
+ *
+ * branchId is accepted for API-shape consistency with the rest of this
+ * codebase (tenant+branch pairs are the norm), but offers in this schema
+ * have no branch_id column — there's nothing to filter on it.
+ */
+export async function getPublicOffers(tenantId: string, _branchId: string): Promise<PublicOfferCard[]> {
+  const supabase = await createClient();
+  const now = new Date();
+
+  const { data: offersRaw, error } = await supabase
+    .from('offers')
+    .select('id, code, name, description_ar, description_en, discount_type, discount_value, redemption_type, applies_to_game_type_id, max_uses, uses_count, min_tier, valid_from, valid_to, image_url')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true);
+  if (error) throw error;
+
+  const offers = (offersRaw ?? []) as unknown as Array<
+    Pick<
+      OfferRow,
+      | 'id' | 'code' | 'name' | 'description_ar' | 'description_en' | 'discount_type' | 'discount_value'
+      | 'redemption_type' | 'applies_to_game_type_id' | 'max_uses' | 'uses_count' | 'min_tier' | 'valid_from'
+      | 'valid_to' | 'image_url'
+    >
+  >;
+
+  const candidates = offers.filter((o) => {
+    if (o.valid_from && new Date(o.valid_from) > now) return false;
+    if (o.valid_to && new Date(o.valid_to) < now) return false;
+    if (o.max_uses !== null && o.uses_count >= o.max_uses) return false;
+    return true;
+  });
+  if (candidates.length === 0) return [];
+
+  const gameTypeIds = [...new Set(
+    candidates.map((o) => o.applies_to_game_type_id).filter((id): id is string => !!id),
+  )];
+  const { data: gameTypesRaw } = gameTypeIds.length
+    ? await supabase.from('game_types').select('id, display_name_en, display_name_ar').in('id', gameTypeIds)
+    : { data: [] };
+  const gameTypeMap = new Map(
+    ((gameTypesRaw ?? []) as unknown as Array<{ id: string; display_name_en: string; display_name_ar: string }>)
+      .map((g) => [g.id, g]),
+  );
+
+  return candidates.map((o) => {
+    const gt = o.applies_to_game_type_id ? gameTypeMap.get(o.applies_to_game_type_id) : undefined;
+    return {
+      id: o.id,
+      title: o.name,
+      descriptionEn: o.description_en ?? null,
+      descriptionAr: o.description_ar ?? null,
+      discountType: o.discount_type,
+      discountValue: o.discount_value,
+      code: o.redemption_type === 'code' ? o.code : null,
+      isAutoApply: o.redemption_type === 'auto',
+      gameTypeNameEn: gt?.display_name_en ?? null,
+      gameTypeNameAr: gt?.display_name_ar ?? null,
+      minTier: o.min_tier,
+      imageUrl: o.image_url,
+    };
+  });
 }

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAuth } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { computeSessionPriceForStation } from '@/lib/cashier';
+import { computeBowlingDuration } from '@/lib/bowling';
 import {
   createCustomerBooking,
   createScheduledBooking,
@@ -22,9 +23,16 @@ const DEMO_BRANCH_ID = '22222222-2222-2222-2222-222222222222';
 const priceSchema = z.object({
   stationId: z.string().uuid(),
   durationMinutes: z.number().int().min(5).max(480),
+  playerCount: z.number().int().min(1).max(8).optional(),
+  gameCount: z.union([z.literal(1), z.literal(2)]).optional(),
 });
 
-export async function getBookingPriceAction(input: { stationId: string; durationMinutes: number }) {
+export async function getBookingPriceAction(input: {
+  stationId: string;
+  durationMinutes: number;
+  playerCount?: number;
+  gameCount?: 1 | 2;
+}) {
   await requireAuth();
 
   const parsed = priceSchema.safeParse(input);
@@ -44,12 +52,16 @@ const previewOfferSchema = z.object({
   stationId: z.string().uuid(),
   durationMinutes: z.number().int().min(5).max(480),
   code: z.string().optional(),
+  playerCount: z.number().int().min(1).max(8).optional(),
+  gameCount: z.union([z.literal(1), z.literal(2)]).optional(),
 });
 
 export async function previewOfferAction(input: {
   stationId: string;
   durationMinutes: number;
   code?: string;
+  playerCount?: number;
+  gameCount?: 1 | 2;
 }) {
   const ctx = await requireAuth();
 
@@ -73,6 +85,8 @@ export async function previewOfferAction(input: {
     const amountCents = await computeSessionPriceForStation({
       stationId: parsed.data.stationId,
       durationMinutes: parsed.data.durationMinutes,
+      playerCount: parsed.data.playerCount,
+      gameCount: parsed.data.gameCount,
     });
 
     const result = await resolveOfferForCheckout({
@@ -147,6 +161,32 @@ export async function getSchedulableGameTypesAction() {
   }
 }
 
+const computeBowlingDurationInputSchema = z.object({
+  gameTypeId: z.string().uuid(),
+  playerCount: z.number().int().min(1).max(8),
+  gameCount: z.union([z.literal(1), z.literal(2)]),
+});
+
+/**
+ * Bowling doesn't have a duration button to click — the customer picks
+ * players + single/double game instead, and this resolves the actual
+ * bookable duration (clamped, rounded to the slot grid) that then drives
+ * slot-fetching/pricing/booking exactly like any preset duration would.
+ */
+export async function computeBowlingDurationAction(input: { gameTypeId: string; playerCount: number; gameCount: 1 | 2 }) {
+  await requireAuth();
+  const parsed = computeBowlingDurationInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  }
+  try {
+    const result = await computeBowlingDuration({ tenantId: DEMO_TENANT_ID, ...parsed.data });
+    return { ok: true as const, durationMinutes: result.durationMinutes };
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : 'Failed to compute duration' };
+  }
+}
+
 const availableStationsSchema = z.object({
   gameTypeId: z.string().uuid(),
   scheduledStartAt: z.string(),
@@ -179,6 +219,8 @@ const createScheduledBookingSchema = z.object({
   scheduledStartAt: z.string(),
   durationMinutes: z.number().int().min(5).max(480),
   offerCode: z.string().optional(),
+  playerCount: z.number().int().min(1).max(8).optional(),
+  gameCount: z.union([z.literal(1), z.literal(2)]).optional(),
 });
 
 export async function createScheduledBookingAction(input: {
@@ -186,6 +228,8 @@ export async function createScheduledBookingAction(input: {
   scheduledStartAt: string;
   durationMinutes: number;
   offerCode?: string;
+  playerCount?: number;
+  gameCount?: 1 | 2;
 }) {
   const ctx = await requireAuth();
 
@@ -202,6 +246,8 @@ export async function createScheduledBookingAction(input: {
       customerId: ctx.userId,
       scheduledStartAt: parsed.data.scheduledStartAt,
       durationMinutes: parsed.data.durationMinutes,
+      playerCount: parsed.data.playerCount,
+      gameCount: parsed.data.gameCount,
       offerCode: parsed.data.offerCode,
     });
     return { ok: true as const, ...result };

@@ -7,10 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PhonePad } from './phone-pad';
+import { GameTypePicker } from './game-type-picker';
 import { StationPicker } from './station-picker';
 import type { PublicVenueState, PublicStation } from '@/lib/venue';
+import { useLiveVenueState } from '@/hooks/useLiveVenueState';
 import { cn, formatMoney, normalizePhone } from '@/lib/utils';
-import { Loader2, Pencil, Banknote, Wallet, CheckCircle2 } from 'lucide-react';
+import { Loader2, Pencil, Banknote, Wallet, CheckCircle2, Radio } from 'lucide-react';
 import {
   lookupCustomerAction,
   createWalkInCustomerAction,
@@ -37,6 +39,15 @@ const DURATION_PRESETS = [30, 60, 90] as const;
 export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps) {
   const { t } = useT();
 
+  // Owns the ONE live venue-state subscription for this whole flow — both
+  // GameTypePicker and StationPicker read from it as props instead of each
+  // subscribing themselves. useLiveVenueState's realtime channel is named
+  // after the branch, and the Supabase browser client is a singleton, so a
+  // second simultaneous subscriber to the same channel name previously
+  // crashed with "cannot add postgres_changes callbacks after subscribe()".
+  const { state: liveState, isStale } = useLiveVenueState(branchCode, initial);
+  const stations = liveState?.stations ?? [];
+
   // --- Section 1: customer ---
   const [phone, setPhone] = useState('');
   const [customer, setCustomer] = useState<SelectedCustomer | null>(null);
@@ -47,13 +58,19 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [walletPending, startWallet] = useTransition();
 
-  // --- Section 2: station + duration ---
+  // --- Section 2: game type + station + duration (or players/games for bowling) ---
+  const [selectedGameTypeCode, setSelectedGameTypeCode] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState<PublicStation | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [showCustomDuration, setShowCustomDuration] = useState(false);
   const [customDuration, setCustomDuration] = useState('');
+  const [playerCount, setPlayerCount] = useState(2);
+  const [gameCount, setGameCount] = useState<1 | 2>(1);
+  const [bowlingDurationMinutes, setBowlingDurationMinutes] = useState<number | null>(null);
   const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
   const [pricePending, startPrice] = useTransition();
+
+  const isBowling = selectedGameTypeCode?.toLowerCase().includes('bowl') ?? false;
 
   // --- Section 3: payment ---
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | null>(null);
@@ -68,6 +85,11 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
     }
     return duration;
   }, [showCustomDuration, customDuration, duration]);
+
+  // Resolved duration used for gating/final submit — bowling's comes from
+  // the server (computeBowlingDuration via the price-preview action) instead
+  // of a duration button click.
+  const resolvedDuration = isBowling ? bowlingDurationMinutes : effectiveDuration;
 
   useEffect(() => {
     if (!customer) {
@@ -84,7 +106,29 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
     });
   }, [customer]);
 
+  // Bowling: price + duration preview driven by player/game count.
   useEffect(() => {
+    if (!isBowling || !selectedStation) return;
+    startPrice(async () => {
+      const res = await computeSessionPriceForStationAction({
+        stationId: selectedStation.id,
+        playerCount,
+        gameCount,
+      });
+      if (res.error) {
+        setEstimatedPrice(null);
+        setBowlingDurationMinutes(null);
+        toast.error(res.error);
+        return;
+      }
+      setEstimatedPrice(res.amountCents ?? null);
+      setBowlingDurationMinutes(res.durationMinutes ?? null);
+    });
+  }, [isBowling, selectedStation, playerCount, gameCount]);
+
+  // Every other game type: price preview driven by the picked duration.
+  useEffect(() => {
+    if (isBowling) return;
     if (!selectedStation || !effectiveDuration) {
       setEstimatedPrice(null);
       return;
@@ -101,7 +145,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
       }
       setEstimatedPrice(res.amountCents ?? null);
     });
-  }, [selectedStation, effectiveDuration]);
+  }, [isBowling, selectedStation, effectiveDuration]);
 
   const handleFindOrCreate = () => {
     if (!normalizedPhone) {
@@ -150,6 +194,18 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
     setPaymentMethod(null);
   };
 
+  const handleSelectGameType = (code: string) => {
+    setSelectedGameTypeCode(code);
+    setSelectedStation(null);
+    setDuration(null);
+    setShowCustomDuration(false);
+    setCustomDuration('');
+    setPlayerCount(2);
+    setGameCount(1);
+    setBowlingDurationMinutes(null);
+    setEstimatedPrice(null);
+  };
+
   const walletInsufficient =
     paymentMethod === 'wallet' &&
     walletBalance !== null &&
@@ -159,14 +215,14 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
   const canSeat =
     !!customer &&
     !!selectedStation &&
-    !!effectiveDuration &&
+    !!resolvedDuration &&
     !!paymentMethod &&
     estimatedPrice !== null &&
     !walletInsufficient &&
     !seatPending;
 
   const handleSeatNow = () => {
-    if (!customer || !selectedStation || !effectiveDuration || !paymentMethod || estimatedPrice === null) {
+    if (!customer || !selectedStation || !resolvedDuration || !paymentMethod || estimatedPrice === null) {
       return;
     }
     startSeat(async () => {
@@ -175,7 +231,9 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
         stationId: selectedStation.id,
         customerId: customer.id,
         customerLabel: customer.full_name?.trim() || customer.phone,
-        durationMinutes: effectiveDuration,
+        durationMinutes: isBowling ? undefined : (effectiveDuration ?? undefined),
+        playerCount: isBowling ? playerCount : undefined,
+        gameCount: isBowling ? gameCount : undefined,
         paymentMethod,
       });
       if (res.error) {
@@ -191,10 +249,14 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
       });
 
       handleChangeCustomer();
+      setSelectedGameTypeCode(null);
       setSelectedStation(null);
       setDuration(null);
       setShowCustomDuration(false);
       setCustomDuration('');
+      setPlayerCount(2);
+      setGameCount(1);
+      setBowlingDurationMinutes(null);
       setEstimatedPrice(null);
     });
   };
@@ -290,54 +352,121 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
         </CardContent>
       </Card>
 
-      {/* Section 2 — Station + Duration */}
+      {/* Section 2 — Game type, then station, then time (same order as the customer booking flow) */}
       <Card className={cn(!customer && 'opacity-50 pointer-events-none')}>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-lg">{t('cashier.step2')}</CardTitle>
+          <span className={cn('inline-flex items-center gap-1.5 text-xs text-muted-foreground', isStale && 'text-amber-400')}>
+            <Radio className={cn('h-3.5 w-3.5', !isStale && 'text-emerald-400 animate-pulse')} />
+            {isStale ? 'refreshing…' : 'live'}
+          </span>
         </CardHeader>
         <CardContent className="space-y-6">
-          <StationPicker
-            branchCode={branchCode}
-            initial={initial}
-            selectedStationId={selectedStation?.id ?? null}
-            onSelect={setSelectedStation}
-          />
-
-          <div className="grid grid-cols-4 gap-2">
-            {DURATION_PRESETS.map((min) => (
-              <Button
-                key={min}
-                type="button"
-                variant={!showCustomDuration && duration === min ? 'gold' : 'outline'}
-                size="xl"
-                onClick={() => {
-                  setDuration(min);
-                  setShowCustomDuration(false);
-                }}
-              >
-                {min} {t('cashier.minutes')}
-              </Button>
-            ))}
-            <Button
-              type="button"
-              variant={showCustomDuration ? 'gold' : 'outline'}
-              size="xl"
-              onClick={() => setShowCustomDuration(true)}
-            >
-              {t('cashier.custom')}
-            </Button>
-          </div>
-
-          {showCustomDuration && (
-            <Input
-              type="number"
-              min={5}
-              max={480}
-              value={customDuration}
-              onChange={(e) => setCustomDuration(e.target.value)}
-              placeholder={t('cashier.minuteRange')}
-              className="h-12 font-mono tabular-nums"
+          {!liveState ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-16 rounded-xl bg-muted/10 animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <GameTypePicker
+              stations={stations}
+              selectedCode={selectedGameTypeCode}
+              onSelect={handleSelectGameType}
             />
+          )}
+
+          {selectedGameTypeCode && (
+            <StationPicker
+              stations={stations}
+              gameTypeCode={selectedGameTypeCode}
+              selectedStationId={selectedStation?.id ?? null}
+              onSelect={setSelectedStation}
+            />
+          )}
+
+          {selectedStation && isBowling && (
+            <div className="space-y-4">
+              <div>
+                <div className="text-sm font-medium mb-2">{t('slots.howManyPlayers')}</div>
+                <div className="flex items-center gap-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={playerCount <= 1}
+                    onClick={() => setPlayerCount((p) => Math.max(1, p - 1))}
+                  >
+                    −
+                  </Button>
+                  <span className="text-2xl font-bold tabular-nums w-8 text-center">{playerCount}</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={playerCount >= 8}
+                    onClick={() => setPlayerCount((p) => Math.min(8, p + 1))}
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-medium mb-2">{t('slots.singleOrDoubleGame')}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant={gameCount === 1 ? 'gold' : 'outline'} size="xl" onClick={() => setGameCount(1)}>
+                    {t('slots.singleGame')}
+                  </Button>
+                  <Button type="button" variant={gameCount === 2 ? 'gold' : 'outline'} size="xl" onClick={() => setGameCount(2)}>
+                    {t('slots.doubleGame')}
+                  </Button>
+                </div>
+              </div>
+              {bowlingDurationMinutes !== null && (
+                <div className="text-xs text-muted-foreground">{t('slots.estimatedDuration', { minutes: String(bowlingDurationMinutes) })}</div>
+              )}
+            </div>
+          )}
+
+          {selectedStation && !isBowling && (
+            <>
+              <div className="grid grid-cols-4 gap-2">
+                {DURATION_PRESETS.map((min) => (
+                  <Button
+                    key={min}
+                    type="button"
+                    variant={!showCustomDuration && duration === min ? 'gold' : 'outline'}
+                    size="xl"
+                    onClick={() => {
+                      setDuration(min);
+                      setShowCustomDuration(false);
+                    }}
+                  >
+                    {min} {t('cashier.minutes')}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant={showCustomDuration ? 'gold' : 'outline'}
+                  size="xl"
+                  onClick={() => setShowCustomDuration(true)}
+                >
+                  {t('cashier.custom')}
+                </Button>
+              </div>
+
+              {showCustomDuration && (
+                <Input
+                  type="number"
+                  min={5}
+                  max={480}
+                  value={customDuration}
+                  onChange={(e) => setCustomDuration(e.target.value)}
+                  placeholder={t('cashier.minuteRange')}
+                  className="h-12 font-mono tabular-nums"
+                />
+              )}
+            </>
           )}
 
           {pricePending ? (
@@ -354,7 +483,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
       </Card>
 
       {/* Section 3 — Payment + Confirm */}
-      <Card className={cn((!customer || !selectedStation || !effectiveDuration) && 'opacity-50 pointer-events-none')}>
+      <Card className={cn((!customer || !selectedStation || !resolvedDuration) && 'opacity-50 pointer-events-none')}>
         <CardHeader>
           <CardTitle className="text-lg">{t('cashier.step3')}</CardTitle>
         </CardHeader>

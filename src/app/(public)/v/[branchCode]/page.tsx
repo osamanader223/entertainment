@@ -2,8 +2,10 @@ import { notFound } from 'next/navigation';
 import { resolveBranchByCode, getPublicVenueState } from '@/lib/venue';
 import { computeSessionPrice } from '@/lib/cashier';
 import { getQueueableGameTypes } from '@/lib/queue';
+import { getPublicOffers } from '@/lib/offers';
 import { PublicLiveGrid } from './actions';
 import { AmbientBackground } from '@/components/venue/ambient-background';
+import { PublicOffersShowcase } from '@/components/offers/public-offers-showcase';
 import { MapPin } from 'lucide-react';
 import { getServerDict } from '@/i18n/server';
 
@@ -56,6 +58,7 @@ export default async function PublicVenuePage({ params }: PageProps) {
     }),
   );
   const hourlyPriceCentsByGameTypeCode = Object.fromEntries(priceEntries);
+  const offers = await getPublicOffers(DEMO_TENANT_ID, branchId);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
@@ -75,6 +78,8 @@ export default async function PublicVenuePage({ params }: PageProps) {
           </div>
         )}
       </header>
+
+      {offers.length > 0 && <PublicOffersShowcase offers={offers} />}
 
       <PublicLiveGrid branchCode={branchCode} initial={initialState ?? undefined} hourlyPriceCentsByGameTypeCode={hourlyPriceCentsByGameTypeCode} />
     </div>
