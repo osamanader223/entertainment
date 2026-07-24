@@ -39,6 +39,19 @@ export function SettingsForm({ initialSettings, canEditBranding }: SettingsFormP
   const [cancellationCredit, setCancellationCredit] = useState(String(initialSettings.branch.queuePolicy.cancellation_credit_percent));
   const [savingBranch, setSavingBranch] = useState(false);
 
+  // Tax details (ZATCA)
+  const [vatNumber, setVatNumber] = useState(initialSettings.branch.tax.vatNumber ?? '');
+  const [legalNameAr, setLegalNameAr] = useState(initialSettings.branch.tax.legalNameAr ?? '');
+  const [legalNameEn, setLegalNameEn] = useState(initialSettings.branch.tax.legalNameEn ?? '');
+  const [addressStreet, setAddressStreet] = useState(initialSettings.branch.tax.addressStreet ?? '');
+  const [addressDistrict, setAddressDistrict] = useState(initialSettings.branch.tax.addressDistrict ?? '');
+  const [addressCity, setAddressCity] = useState(initialSettings.branch.tax.addressCity ?? '');
+  const [addressPostalCode, setAddressPostalCode] = useState(initialSettings.branch.tax.addressPostalCode ?? '');
+  const [addressBuildingNo, setAddressBuildingNo] = useState(initialSettings.branch.tax.addressBuildingNo ?? '');
+  const [crNumber, setCrNumber] = useState(initialSettings.branch.tax.crNumber ?? '');
+  const [savingTax, setSavingTax] = useState(false);
+  const vatNumberValid = vatNumber.trim() === '' || /^3\d{13}3$/.test(vatNumber.trim());
+
   const saveIdentity = async () => {
     setSavingIdentity(true);
     const res = await updateTenantSettingsAction({
@@ -69,6 +82,28 @@ export function SettingsForm({ initialSettings, canEditBranding }: SettingsFormP
       },
     });
     setSavingBranch(false);
+    if (res.ok) toast.success(t('adminSettings.saved'));
+    else toast.error(res.error);
+  };
+
+  const saveTax = async () => {
+    if (!vatNumberValid) {
+      toast.error(t('adminSettings.vatNumberInvalid'));
+      return;
+    }
+    setSavingTax(true);
+    const res = await updateBranchSettingsAction({
+      vatNumber: vatNumber.trim() || null,
+      legalNameAr: legalNameAr.trim() || null,
+      legalNameEn: legalNameEn.trim() || null,
+      addressStreet: addressStreet.trim() || null,
+      addressDistrict: addressDistrict.trim() || null,
+      addressCity: addressCity.trim() || null,
+      addressPostalCode: addressPostalCode.trim() || null,
+      addressBuildingNo: addressBuildingNo.trim() || null,
+      crNumber: crNumber.trim() || null,
+    });
+    setSavingTax(false);
     if (res.ok) toast.success(t('adminSettings.saved'));
     else toast.error(res.error);
   };
@@ -184,6 +219,65 @@ export function SettingsForm({ initialSettings, canEditBranding }: SettingsFormP
           <Button variant="gold" disabled={savingBranch} onClick={saveBranch}>
             {savingBranch && <Loader2 className="h-4 w-4 animate-spin" />}
             {t('adminSettings.saveBranch')}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Tax details (ZATCA) */}
+      <Card className="glass border-gold-500/20">
+        <CardHeader>
+          <CardTitle className="text-lg">{t('adminSettings.taxDetails')}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">{t('adminSettings.taxDetailsNote')}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FieldRow label={t('adminSettings.legalNameAr')}>
+              <Input value={legalNameAr} onChange={(e) => setLegalNameAr(e.target.value)} dir="rtl" />
+            </FieldRow>
+            <FieldRow label={t('adminSettings.legalNameEn')}>
+              <Input value={legalNameEn} onChange={(e) => setLegalNameEn(e.target.value)} dir="ltr" />
+            </FieldRow>
+          </div>
+          <FieldRow label={t('adminSettings.vatNumber')}>
+            <Input
+              value={vatNumber}
+              onChange={(e) => setVatNumber(e.target.value)}
+              placeholder="300000000000003"
+              className="font-mono"
+              dir="ltr"
+            />
+            {!vatNumberValid && <p className="text-xs text-destructive mt-1">{t('adminSettings.vatNumberInvalid')}</p>}
+          </FieldRow>
+          <FieldRow label={t('adminSettings.crNumber')}>
+            <Input value={crNumber} onChange={(e) => setCrNumber(e.target.value)} className="font-mono" dir="ltr" />
+          </FieldRow>
+
+          <div className="pt-2 border-t border-border/40">
+            <h3 className="text-sm font-semibold text-muted-foreground mb-3 mt-3">{t('adminSettings.taxAddress')}</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FieldRow label={t('adminSettings.addressStreet')}>
+                <Input value={addressStreet} onChange={(e) => setAddressStreet(e.target.value)} />
+              </FieldRow>
+              <FieldRow label={t('adminSettings.addressDistrict')}>
+                <Input value={addressDistrict} onChange={(e) => setAddressDistrict(e.target.value)} />
+              </FieldRow>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <FieldRow label={t('adminSettings.addressCity')}>
+                <Input value={addressCity} onChange={(e) => setAddressCity(e.target.value)} />
+              </FieldRow>
+              <FieldRow label={t('adminSettings.addressBuildingNo')}>
+                <Input value={addressBuildingNo} onChange={(e) => setAddressBuildingNo(e.target.value)} className="font-mono" dir="ltr" />
+              </FieldRow>
+              <FieldRow label={t('adminSettings.addressPostalCode')}>
+                <Input value={addressPostalCode} onChange={(e) => setAddressPostalCode(e.target.value)} className="font-mono" dir="ltr" />
+              </FieldRow>
+            </div>
+          </div>
+
+          <Button variant="gold" disabled={savingTax} onClick={saveTax}>
+            {savingTax && <Loader2 className="h-4 w-4 animate-spin" />}
+            {t('adminSettings.saveTax')}
           </Button>
         </CardContent>
       </Card>

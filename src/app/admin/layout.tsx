@@ -33,6 +33,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { key: 'staff', href: '/admin/staff', label: d.admin.staff, icon: 'staff', staffVisible: false },
     { key: 'customers', href: '/admin/customers', label: d.admin.customers, icon: 'customers', staffVisible: true },
     { key: 'wallet', href: '/admin/wallet', label: d.admin.wallet, icon: 'wallet', staffVisible: false },
+    { key: 'invoices', href: '/admin/invoices', label: d.invoices.listTitle, icon: 'invoices', staffVisible: false },
     { key: 'messages', href: '/admin/messages', label: d.admin.messages, icon: 'messages', staffVisible: false },
     { key: 'settings', href: '/admin/settings', label: d.admin.settings, icon: 'settings', staffVisible: false },
   ];

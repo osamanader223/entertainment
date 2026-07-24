@@ -7,6 +7,7 @@ import { resolveOfferForCheckout, recordOfferRedemption } from '@/lib/offers';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 import { fireNotification } from '@/lib/notifications';
 import { isStationFreeForWindow } from '@/lib/station-overlap';
+import { issueInvoiceForPayment } from '@/lib/invoices';
 import { computeBowlingDuration } from '@/lib/bowling';
 import {
   generateSlotsForVenueDay,
@@ -213,6 +214,16 @@ export async function createCustomerBooking({
     entity_id: session.id,
     after: { station_id: stationId, booking_id: booking.id, amount_cents: chargedCents },
   });
+
+  // ZATCA Phase 1: every paid transaction gets an invoice. Awaited, not
+  // fire-and-forget — but its failure must not undo an already-paid,
+  // already-active session. Logged loudly instead; /admin/invoices lists
+  // uninvoiced captured payments for exactly this case.
+  try {
+    await issueInvoiceForPayment({ tenantId, branchId, paymentId: payment.id, sessionId: session.id, issuedBy: customerId });
+  } catch (invoiceError) {
+    console.error('[invoices] CRITICAL: failed to issue invoice for instant-booking payment', payment.id, invoiceError);
+  }
 
   // Record offer redemption after booking is confirmed
   if (offerResult.applied && offerResult.offer) {
@@ -491,6 +502,18 @@ export async function createScheduledBooking({
     entity_id: booking.id,
     after: { station_id: stationId, scheduled_start_at: startDate.toISOString(), amount_cents: chargedCents },
   });
+
+  // ZATCA Phase 1: payment is captured up-front for a scheduled booking
+  // (the session itself doesn't exist until check-in), so the invoice is
+  // issued now, against the payment — not deferred to session start.
+  // Awaited, not fire-and-forget; a failure must not undo the already-paid
+  // reservation. Logged loudly instead; /admin/invoices lists uninvoiced
+  // captured payments for exactly this case.
+  try {
+    await issueInvoiceForPayment({ tenantId, branchId, paymentId: payment.id, issuedBy: customerId });
+  } catch (invoiceError) {
+    console.error('[invoices] CRITICAL: failed to issue invoice for scheduled-booking payment', payment.id, invoiceError);
+  }
 
   void fireNotification({
     tenantId,

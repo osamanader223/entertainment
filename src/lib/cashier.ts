@@ -5,6 +5,7 @@ import { debitWallet } from '@/lib/wallet';
 import { runLightSequence } from '@/lib/ifttt';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 import { isStationFreeForWindow } from '@/lib/station-overlap';
+import { issueInvoiceForPayment } from '@/lib/invoices';
 
 export interface CashierCustomer {
   id: string;
@@ -306,6 +307,23 @@ export async function startCashierSession({
     entity_id: session.id,
     after: { station_id: stationId, customer_id: customerId, amount_cents: amountCents },
   });
+
+  // ZATCA Phase 1: every paid transaction gets an invoice. Awaited (not
+  // fire-and-forget) so issuance actually happens before this returns — but
+  // its failure must not undo an already-successful, already-paid session.
+  // Logged loudly instead; /admin/invoices lists uninvoiced captured
+  // payments for exactly this case.
+  try {
+    await issueInvoiceForPayment({
+      tenantId,
+      branchId,
+      paymentId: payment.id,
+      sessionId: session.id,
+      issuedBy: actorId,
+    });
+  } catch (invoiceError) {
+    console.error('[invoices] CRITICAL: failed to issue invoice for cashier payment', payment.id, invoiceError);
+  }
 
   // Cash or wallet both earn points on the amount charged, but only for real
   // (non-walk-in) customer accounts.

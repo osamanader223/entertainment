@@ -13,7 +13,7 @@ import {
   ArrowLeft, LogOut, HelpCircle,
   Home, CalendarCheck, Wallet, User,
   LayoutDashboard, BarChart3, Tag, DollarSign, Monitor, Users, UserSquare2, MessageCircle, Settings,
-  Banknote, Globe,
+  Banknote, Globe, Receipt,
 } from 'lucide-react';
 import { useT } from '@/i18n/context';
 import { cn } from '@/lib/utils';
@@ -39,6 +39,7 @@ const ICONS = {
   settings: Settings,
   cashier: Banknote,
   publicView: Globe,
+  invoices: Receipt,
 } as const;
 
 export type NavIconName = keyof typeof ICONS;

@@ -24,6 +24,17 @@ export interface VenueSettings {
       cancellation_credit_percent: number;
       allow_anonymous_queue: boolean;
     };
+    tax: {
+      vatNumber: string | null;
+      legalNameAr: string | null;
+      legalNameEn: string | null;
+      addressStreet: string | null;
+      addressDistrict: string | null;
+      addressCity: string | null;
+      addressPostalCode: string | null;
+      addressBuildingNo: string | null;
+      crNumber: string | null;
+    };
   };
 }
 
@@ -45,7 +56,7 @@ export async function getVenueSettings(tenantId: string, branchId: string): Prom
       .single(),
     admin
       .from('branches')
-      .select('display_name, address_line, city, phone, whatsapp_number, opens_at, closes_at, queue_policy')
+      .select('display_name, address_line, city, phone, whatsapp_number, opens_at, closes_at, queue_policy, vat_number, legal_name_ar, legal_name_en, address_street, address_district, address_city, address_postal_code, address_building_no, cr_number')
       .eq('id', branchId)
       .single(),
   ]);
@@ -59,6 +70,9 @@ export async function getVenueSettings(tenantId: string, branchId: string): Prom
   const branch = branchRaw as unknown as {
     display_name: string; address_line: string | null; city: string | null; phone: string | null;
     whatsapp_number: string | null; opens_at: string; closes_at: string; queue_policy: Record<string, unknown>;
+    vat_number: string | null; legal_name_ar: string | null; legal_name_en: string | null;
+    address_street: string | null; address_district: string | null; address_city: string | null;
+    address_postal_code: string | null; address_building_no: string | null; cr_number: string | null;
   };
 
   return {
@@ -81,6 +95,17 @@ export async function getVenueSettings(tenantId: string, branchId: string): Prom
       queuePolicy: {
         ...DEFAULT_QUEUE_POLICY,
         ...(branch.queue_policy as Partial<typeof DEFAULT_QUEUE_POLICY>),
+      },
+      tax: {
+        vatNumber: branch.vat_number,
+        legalNameAr: branch.legal_name_ar,
+        legalNameEn: branch.legal_name_en,
+        addressStreet: branch.address_street,
+        addressDistrict: branch.address_district,
+        addressCity: branch.address_city,
+        addressPostalCode: branch.address_postal_code,
+        addressBuildingNo: branch.address_building_no,
+        crNumber: branch.cr_number,
       },
     },
   };
@@ -137,6 +162,15 @@ export interface UpdateBranchSettingsInput {
     cancellation_credit_percent: number;
     allow_anonymous_queue: boolean;
   }>;
+  vatNumber?: string | null;
+  legalNameAr?: string | null;
+  legalNameEn?: string | null;
+  addressStreet?: string | null;
+  addressDistrict?: string | null;
+  addressCity?: string | null;
+  addressPostalCode?: string | null;
+  addressBuildingNo?: string | null;
+  crNumber?: string | null;
 }
 
 export async function updateBranchSettings(
@@ -154,6 +188,15 @@ export async function updateBranchSettings(
   if (patch.whatsappNumber !== undefined) update.whatsapp_number = patch.whatsappNumber;
   if (patch.opensAt !== undefined) update.opens_at = patch.opensAt;
   if (patch.closesAt !== undefined) update.closes_at = patch.closesAt;
+  if (patch.vatNumber !== undefined) update.vat_number = patch.vatNumber;
+  if (patch.legalNameAr !== undefined) update.legal_name_ar = patch.legalNameAr;
+  if (patch.legalNameEn !== undefined) update.legal_name_en = patch.legalNameEn;
+  if (patch.addressStreet !== undefined) update.address_street = patch.addressStreet;
+  if (patch.addressDistrict !== undefined) update.address_district = patch.addressDistrict;
+  if (patch.addressCity !== undefined) update.address_city = patch.addressCity;
+  if (patch.addressPostalCode !== undefined) update.address_postal_code = patch.addressPostalCode;
+  if (patch.addressBuildingNo !== undefined) update.address_building_no = patch.addressBuildingNo;
+  if (patch.crNumber !== undefined) update.cr_number = patch.crNumber;
 
   if (patch.queuePolicy !== undefined) {
     const { data: currentRaw } = await admin.from('branches').select('queue_policy').eq('id', branchId).single();

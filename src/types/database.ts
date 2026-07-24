@@ -83,6 +83,15 @@ export interface Database {
           status: Database['public']['Enums']['branch_status'];
           queue_policy: Json;
           ifttt_webhook_key: string | null;
+          vat_number: string | null;
+          legal_name_ar: string | null;
+          legal_name_en: string | null;
+          address_street: string | null;
+          address_district: string | null;
+          address_city: string | null;
+          address_postal_code: string | null;
+          address_building_no: string | null;
+          cr_number: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -92,6 +101,54 @@ export interface Database {
           display_name: string;
         };
         Update: Partial<Database['public']['Tables']['branches']['Row']>;
+        Relationships: [];
+      };
+      invoices: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          branch_id: string;
+          invoice_number: number;
+          invoice_type: Database['public']['Enums']['invoice_type'];
+          seller_name: string;
+          seller_vat_number: string;
+          seller_address: string | null;
+          buyer_name: string | null;
+          buyer_vat_number: string | null;
+          subtotal_cents: number;
+          vat_rate: number;
+          vat_amount_cents: number;
+          total_cents: number;
+          line_items: Json;
+          qr_tlv_base64: string;
+          issued_at: string;
+          issued_by: string | null;
+          source_payment_id: string | null;
+          source_session_id: string | null;
+          corrects_invoice_id: string | null;
+        };
+        Insert: Partial<Database['public']['Tables']['invoices']['Row']> & {
+          tenant_id: string;
+          branch_id: string;
+          invoice_number: number;
+          seller_name: string;
+          seller_vat_number: string;
+          subtotal_cents: number;
+          vat_amount_cents: number;
+          total_cents: number;
+          line_items: Json;
+          qr_tlv_base64: string;
+        };
+        Update: Partial<Database['public']['Tables']['invoices']['Row']>;
+        Relationships: [];
+      };
+      invoice_sequences: {
+        Row: {
+          branch_id: string;
+          next_number: number;
+        };
+        Insert: Partial<Database['public']['Tables']['invoice_sequences']['Row']> & { branch_id: string };
+        Update: Partial<Database['public']['Tables']['invoice_sequences']['Row']>;
         Relationships: [];
       };
       user_tenant_roles: {
@@ -519,6 +576,29 @@ export interface Database {
         Args: { p_phone: string; p_exclude_user_id?: string | null };
         Returns: boolean;
       };
+      issue_invoice: {
+        Args: {
+          p_tenant_id: string;
+          p_branch_id: string;
+          p_invoice_type: Database['public']['Enums']['invoice_type'];
+          p_seller_name: string;
+          p_seller_vat_number: string;
+          p_seller_address: string | null;
+          p_buyer_name: string | null;
+          p_buyer_vat_number: string | null;
+          p_subtotal_cents: number;
+          p_vat_rate: number;
+          p_vat_amount_cents: number;
+          p_total_cents: number;
+          p_line_items: Json;
+          p_qr_tlv_base64: string;
+          p_issued_by: string | null;
+          p_source_payment_id: string | null;
+          p_source_session_id: string | null;
+          p_corrects_invoice_id: string | null;
+        };
+        Returns: Database['public']['Tables']['invoices']['Row'];
+      };
       wallet_credit: {
         Args: {
           p_tenant_id: string;
@@ -573,6 +653,7 @@ export interface Database {
       app_role: 'super_admin' | 'tenant_admin' | 'manager' | 'staff' | 'customer';
       tenant_status: 'trial' | 'active' | 'suspended' | 'cancelled';
       branch_status: 'active' | 'maintenance' | 'closed';
+      invoice_type: 'standard' | 'simplified' | 'credit_note' | 'debit_note';
       booking_status:
         | 'pending'
         | 'confirmed'

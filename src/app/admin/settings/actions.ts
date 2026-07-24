@@ -54,6 +54,13 @@ const queuePolicySchema = z.object({
   allow_anonymous_queue: z.boolean().optional(),
 });
 
+// ZATCA VAT registration numbers are always 15 digits, starting and ending with '3'.
+const vatNumberSchema = z
+  .string()
+  .regex(/^3\d{13}3$/, 'VAT number must be 15 digits, starting and ending with 3')
+  .optional()
+  .nullable();
+
 const branchSettingsSchema = z.object({
   displayName: z.string().min(1).max(120).optional(),
   addressLine: z.string().max(200).optional().nullable(),
@@ -63,6 +70,15 @@ const branchSettingsSchema = z.object({
   opensAt: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
   closesAt: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
   queuePolicy: queuePolicySchema.optional(),
+  vatNumber: vatNumberSchema,
+  legalNameAr: z.string().max(200).optional().nullable(),
+  legalNameEn: z.string().max(200).optional().nullable(),
+  addressStreet: z.string().max(200).optional().nullable(),
+  addressDistrict: z.string().max(120).optional().nullable(),
+  addressCity: z.string().max(120).optional().nullable(),
+  addressPostalCode: z.string().max(10).optional().nullable(),
+  addressBuildingNo: z.string().max(10).optional().nullable(),
+  crNumber: z.string().max(20).optional().nullable(),
 });
 
 export async function updateBranchSettingsAction(raw: unknown) {
