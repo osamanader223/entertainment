@@ -9,16 +9,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PhonePad } from './phone-pad';
 import { GameTypePicker } from './game-type-picker';
 import { StationPicker } from './station-picker';
+import { ShiftBar, type OpenShiftState } from './shift-bar';
+import { TabsPanel } from './tabs-panel';
 import type { PublicVenueState, PublicStation } from '@/lib/venue';
 import { useLiveVenueState } from '@/hooks/useLiveVenueState';
 import { cn, formatMoney, normalizePhone } from '@/lib/utils';
-import { Loader2, Pencil, Banknote, Wallet, CheckCircle2, Radio } from 'lucide-react';
+import { Loader2, Pencil, Banknote, Wallet, CheckCircle2, Radio, Receipt } from 'lucide-react';
 import {
   lookupCustomerAction,
   createWalkInCustomerAction,
   computeSessionPriceForStationAction,
   getCustomerWalletBalanceAction,
   startCashierSessionAction,
+  getOpenShiftAction,
+  getOpenTabsAction,
+  openTabAction,
 } from '@/app/(dashboard)/dashboard/cashier/actions';
 import { useT } from '@/i18n/context';
 
@@ -75,6 +80,32 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
   // --- Section 3: payment ---
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | null>(null);
   const [seatPending, startSeat] = useTransition();
+
+  // --- Shift + tabs ---
+  const [shift, setShift] = useState<OpenShiftState | null>(null);
+  const [tabsRefreshKey, setTabsRefreshKey] = useState(0);
+  const [seatMode, setSeatMode] = useState<'pay_now' | 'tab'>('pay_now');
+  const [tabChoice, setTabChoice] = useState<'new' | string>('new');
+  const [newTabLabel, setNewTabLabel] = useState('');
+  const [openTabOptions, setOpenTabOptions] = useState<Array<{ id: string; label: string }>>([]);
+
+  useEffect(() => {
+    (async () => {
+      const res = await getOpenShiftAction({ branchId });
+      if (!res.error && res.shift) {
+        setShift({ id: res.shift.id, openedAt: res.shift.openedAt, openingFloatCents: res.shift.openingFloatCents });
+      }
+    })();
+  }, [branchId]);
+
+  useEffect(() => {
+    (async () => {
+      const res = await getOpenTabsAction({ branchId });
+      if (!res.error && res.tabs) {
+        setOpenTabOptions(res.tabs.map((tb) => ({ id: tb.id, label: tb.customerName || tb.label || 'Tab' })));
+      }
+    })();
+  }, [branchId, tabsRefreshKey]);
 
   const normalizedPhone = useMemo(() => normalizePhone(phone, 'SA'), [phone]);
 
@@ -207,6 +238,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
   };
 
   const walletInsufficient =
+    seatMode === 'pay_now' &&
     paymentMethod === 'wallet' &&
     walletBalance !== null &&
     estimatedPrice !== null &&
@@ -216,16 +248,37 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
     !!customer &&
     !!selectedStation &&
     !!resolvedDuration &&
-    !!paymentMethod &&
+    !!shift &&
+    (seatMode === 'tab' || !!paymentMethod) &&
     estimatedPrice !== null &&
     !walletInsufficient &&
     !seatPending;
 
   const handleSeatNow = () => {
-    if (!customer || !selectedStation || !resolvedDuration || !paymentMethod || estimatedPrice === null) {
+    if (!customer || !selectedStation || !resolvedDuration || !shift || estimatedPrice === null) {
       return;
     }
+    if (seatMode === 'pay_now' && !paymentMethod) return;
+
     startSeat(async () => {
+      let tabId: string | undefined;
+      if (seatMode === 'tab') {
+        if (tabChoice === 'new') {
+          const tabRes = await openTabAction({
+            branchId,
+            customerId: customer.id,
+            label: newTabLabel.trim() || undefined,
+          });
+          if (tabRes.error || !tabRes.result) {
+            toast.error(tabRes.error === 'no_open_shift' ? t('shifts.mustOpenShiftFirst') : (tabRes.error ?? t('tabs.failedToOpen')));
+            return;
+          }
+          tabId = tabRes.result.tabId;
+        } else {
+          tabId = tabChoice;
+        }
+      }
+
       const res = await startCashierSessionAction({
         branchId,
         stationId: selectedStation.id,
@@ -234,13 +287,21 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
         durationMinutes: isBowling ? undefined : (effectiveDuration ?? undefined),
         playerCount: isBowling ? playerCount : undefined,
         gameCount: isBowling ? gameCount : undefined,
-        paymentMethod,
+        paymentMethod: seatMode === 'pay_now' ? (paymentMethod ?? undefined) : undefined,
+        tabId,
       });
       if (res.error) {
         // 'station_reserved' means an upcoming reservation on this station
         // would collide with this walk-in's duration — surface that clearly
-        // rather than a raw error code.
-        toast.error(res.error === 'station_reserved' ? t('scheduling.station_reserved') : res.error);
+        // rather than a raw error code. 'no_open_shift' means the cashier
+        // hasn't opened a shift yet.
+        toast.error(
+          res.error === 'station_reserved'
+            ? t('scheduling.station_reserved')
+            : res.error === 'no_open_shift'
+              ? t('shifts.mustOpenShiftFirst')
+              : res.error
+        );
         return;
       }
 
@@ -258,11 +319,23 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
       setGameCount(1);
       setBowlingDurationMinutes(null);
       setEstimatedPrice(null);
+      setSeatMode('pay_now');
+      setTabChoice('new');
+      setNewTabLabel('');
+      setTabsRefreshKey((k) => k + 1);
     });
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="space-y-6">
+      <ShiftBar
+        branchId={branchId}
+        shift={shift}
+        onShiftOpened={setShift}
+        onShiftClosed={() => setShift(null)}
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Section 1 — Customer */}
       <Card>
         <CardHeader>
@@ -488,42 +561,107 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
           <CardTitle className="text-lg">{t('cashier.step3')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          {!shift && (
+            <p className="text-xs text-destructive">{t('shifts.mustOpenShiftFirst')}</p>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
-              variant={paymentMethod === 'cash' ? 'gold' : 'outline'}
-              size="xl"
-              className="h-20 flex-col gap-1.5"
-              onClick={() => setPaymentMethod('cash')}
+              variant={seatMode === 'pay_now' ? 'gold' : 'outline'}
+              size="lg"
+              onClick={() => setSeatMode('pay_now')}
             >
-              <Banknote className="h-5 w-5" />
-              {t('cashier.cash')}
+              {t('tabs.payNow')}
             </Button>
             <Button
               type="button"
-              variant={paymentMethod === 'wallet' ? 'gold' : 'outline'}
-              size="xl"
-              className="h-20 flex-col gap-1.5"
-              onClick={() => setPaymentMethod('wallet')}
+              variant={seatMode === 'tab' ? 'gold' : 'outline'}
+              size="lg"
+              onClick={() => setSeatMode('tab')}
             >
-              <Wallet className="h-5 w-5" />
-              <span>{t('cashier.walletLabel')}</span>
-              {walletBalance !== null && (
-                <span className="text-xs font-mono opacity-80">{formatMoney(walletBalance)}</span>
-              )}
+              <Receipt className="h-4 w-4" />
+              {t('tabs.addToTab')}
             </Button>
           </div>
 
-          {walletInsufficient && (
-            <p className="text-xs text-destructive">{t('cashier.walletInsufficient')}</p>
+          {seatMode === 'pay_now' ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  type="button"
+                  variant={paymentMethod === 'cash' ? 'gold' : 'outline'}
+                  size="xl"
+                  className="h-20 flex-col gap-1.5"
+                  onClick={() => setPaymentMethod('cash')}
+                >
+                  <Banknote className="h-5 w-5" />
+                  {t('cashier.cash')}
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentMethod === 'wallet' ? 'gold' : 'outline'}
+                  size="xl"
+                  className="h-20 flex-col gap-1.5"
+                  onClick={() => setPaymentMethod('wallet')}
+                >
+                  <Wallet className="h-5 w-5" />
+                  <span>{t('cashier.walletLabel')}</span>
+                  {walletBalance !== null && (
+                    <span className="text-xs font-mono opacity-80">{formatMoney(walletBalance)}</span>
+                  )}
+                </Button>
+              </div>
+
+              {walletInsufficient && (
+                <p className="text-xs text-destructive">{t('cashier.walletInsufficient')}</p>
+              )}
+            </>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={tabChoice === 'new' ? 'gold' : 'outline'}
+                  size="lg"
+                  onClick={() => setTabChoice('new')}
+                >
+                  {t('tabs.newTab')}
+                </Button>
+                <select
+                  value={tabChoice === 'new' ? '' : tabChoice}
+                  onChange={(e) => setTabChoice(e.target.value || 'new')}
+                  className="h-11 rounded-md border border-input bg-background px-2 text-sm"
+                  disabled={openTabOptions.length === 0}
+                >
+                  <option value="">{t('tabs.existingTab')}</option>
+                  {openTabOptions.map((tb) => (
+                    <option key={tb.id} value={tb.id}>
+                      {tb.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {tabChoice === 'new' && (
+                <Input
+                  value={newTabLabel}
+                  onChange={(e) => setNewTabLabel(e.target.value)}
+                  placeholder={t('tabs.tabLabelPlaceholder')}
+                  className="h-11"
+                />
+              )}
+            </div>
           )}
 
           <Button variant="gold" size="xl" className="w-full" disabled={!canSeat} onClick={handleSeatNow}>
             {seatPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {t('cashier.seatNow')}
+            {seatMode === 'tab' ? t('tabs.seatAndAddToTab') : t('cashier.seatNow')}
           </Button>
         </CardContent>
       </Card>
+      </div>
+
+      <TabsPanel branchId={branchId} refreshKey={tabsRefreshKey} />
     </div>
   );
 }

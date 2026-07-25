@@ -152,6 +152,121 @@ export async function issueInvoiceForPayment(input: IssueInvoiceForPaymentInput)
   return { invoiceId: invoice.id, invoiceNumber: invoice.invoice_number, qrBase64 };
 }
 
+export interface IssueInvoiceForTabSettlementInput {
+  tenantId: string;
+  branchId: string;
+  tabId: string;
+  totalCents: number;
+  buyerName?: string;
+  buyerVatNumber?: string;
+  issuedBy?: string;
+}
+
+/**
+ * Issue a ZATCA Phase 1 invoice for a settled tab. A split-payment
+ * settlement can produce several `payments` rows (one per tender), so unlike
+ * issueInvoiceForPayment this doesn't resolve a single payment — it bills
+ * the tab's total directly and traces back via source_tab_id instead of
+ * source_payment_id. Idempotent — one invoice per tab, ever.
+ */
+export async function issueInvoiceForTabSettlement(input: IssueInvoiceForTabSettlementInput): Promise<IssueInvoiceResult> {
+  const admin = createAdminClient();
+
+  const { data: existing } = await admin
+    .from('invoices')
+    .select('id, invoice_number, qr_tlv_base64')
+    .eq('source_tab_id', input.tabId)
+    .maybeSingle();
+  if (existing) {
+    return { invoiceId: existing.id, invoiceNumber: existing.invoice_number, qrBase64: existing.qr_tlv_base64 };
+  }
+
+  const { data: branch, error: branchError } = await admin
+    .from('branches')
+    .select(
+      'legal_name_ar, legal_name_en, vat_number, address_street, address_district, address_city, address_postal_code, address_building_no',
+    )
+    .eq('id', input.branchId)
+    .maybeSingle();
+  if (branchError || !branch) throw new Error('Branch not found');
+  if (!branch.vat_number || !(branch.legal_name_ar || branch.legal_name_en)) {
+    throw new Error('venue_tax_details_not_configured');
+  }
+
+  const sellerName = branch.legal_name_ar || branch.legal_name_en!;
+  const sellerAddress =
+    [branch.address_building_no, branch.address_street, branch.address_district, branch.address_city, branch.address_postal_code]
+      .filter(Boolean)
+      .join(', ') || null;
+
+  const { data: tab } = await admin.from('tabs').select('label').eq('id', input.tabId).maybeSingle();
+  const label = tab?.label ?? 'Tab';
+
+  const totalCents = input.totalCents;
+  const subtotalCents = Math.round(totalCents / (1 + VAT_RATE / 100));
+  const vatAmountCents = totalCents - subtotalCents;
+
+  const lineItems: InvoiceLineItem[] = [
+    {
+      description_en: `Tab settlement — ${label}`,
+      description_ar: `تسوية حساب — ${label}`,
+      qty: 1,
+      unit_price_cents: subtotalCents,
+      vat_cents: vatAmountCents,
+      total_cents: totalCents,
+    },
+  ];
+
+  const issuedAt = new Date();
+  const qrBase64 = buildPhase1QrTlv({
+    sellerName,
+    vatNumber: branch.vat_number,
+    timestampISO: issuedAt.toISOString(),
+    totalWithVat: (totalCents / 100).toFixed(2),
+    vatTotal: (vatAmountCents / 100).toFixed(2),
+  });
+
+  const invoiceType = input.buyerVatNumber ? 'standard' : 'simplified';
+
+  const { data: invoiceRaw, error: issueError } = await admin.rpc('issue_invoice', {
+    p_tenant_id: input.tenantId,
+    p_branch_id: input.branchId,
+    p_invoice_type: invoiceType,
+    p_seller_name: sellerName,
+    p_seller_vat_number: branch.vat_number,
+    p_seller_address: sellerAddress,
+    p_buyer_name: input.buyerName ?? null,
+    p_buyer_vat_number: input.buyerVatNumber ?? null,
+    p_subtotal_cents: subtotalCents,
+    p_vat_rate: VAT_RATE,
+    p_vat_amount_cents: vatAmountCents,
+    p_total_cents: totalCents,
+    p_line_items: lineItems,
+    p_qr_tlv_base64: qrBase64,
+    p_issued_by: input.issuedBy ?? null,
+    p_source_payment_id: null,
+    p_source_session_id: null,
+    p_corrects_invoice_id: null,
+    p_source_tab_id: input.tabId,
+  } as never);
+
+  if (issueError || !invoiceRaw) throw issueError ?? new Error('Failed to issue invoice');
+  const invoice = invoiceRaw as unknown as { id: string; invoice_number: number };
+
+  await admin.from('activity_log').insert({
+    tenant_id: input.tenantId,
+    branch_id: input.branchId,
+    actor_id: input.issuedBy ?? null,
+    actor_role: null,
+    action: 'invoice.issued',
+    entity_type: 'invoice',
+    entity_id: invoice.id,
+    after: { invoice_number: invoice.invoice_number, total_cents: totalCents, invoice_type: invoiceType, source_tab_id: input.tabId },
+  });
+
+  return { invoiceId: invoice.id, invoiceNumber: invoice.invoice_number, qrBase64 };
+}
+
 async function describeLineItem(
   admin: ReturnType<typeof createAdminClient>,
   sessionId: string | undefined,

@@ -13,6 +13,8 @@ import {
   computeSessionPriceForStation,
   startCashierSession,
 } from '@/lib/cashier';
+import { openShift, getOpenShift, closeShift, getShiftSummary } from '@/lib/shifts';
+import { openTab, getOpenTabs, getTab, voidTab, settleTab } from '@/lib/tabs';
 
 const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const STAFF_ROLES = ['staff', 'manager', 'tenant_admin'] as const;
@@ -157,7 +159,8 @@ const startSessionSchema = z.object({
   durationMinutes: z.number().int().min(5).max(480).optional(),
   playerCount: z.number().int().min(1).max(8).optional(),
   gameCount: z.union([z.literal(1), z.literal(2)]).optional(),
-  paymentMethod: z.enum(['cash', 'wallet']),
+  paymentMethod: z.enum(['cash', 'wallet']).optional(),
+  tabId: z.string().uuid().optional(),
 });
 
 export async function startCashierSessionAction(input: {
@@ -168,7 +171,8 @@ export async function startCashierSessionAction(input: {
   durationMinutes?: number;
   playerCount?: number;
   gameCount?: 1 | 2;
-  paymentMethod: 'cash' | 'wallet';
+  paymentMethod?: 'cash' | 'wallet';
+  tabId?: string;
 }) {
   const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
 
@@ -176,8 +180,14 @@ export async function startCashierSessionAction(input: {
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
   }
+  if (!parsed.data.tabId && !parsed.data.paymentMethod) {
+    return { error: 'Choose pay now or add to tab' };
+  }
 
   try {
+    const shift = await getOpenShift(DEMO_TENANT_ID, parsed.data.branchId, ctx.userId);
+    if (!shift) return { error: 'no_open_shift' };
+
     const admin = createAdminClient();
     const { data: station } = await admin.from('stations').select('game_type_id').eq('id', parsed.data.stationId).maybeSingle();
     if (!station) return { error: 'Station not found' };
@@ -206,6 +216,8 @@ export async function startCashierSessionAction(input: {
       durationMinutes,
       paymentMethod: parsed.data.paymentMethod,
       actorId: ctx.userId,
+      shiftId: shift.id,
+      tabId: parsed.data.tabId,
       playerCount: parsed.data.playerCount,
       gameCount: parsed.data.gameCount,
       predictedDurationMinutes,
@@ -213,5 +225,167 @@ export async function startCashierSessionAction(input: {
     return { result };
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Failed to start session' };
+  }
+}
+
+// ---------------------------------------------------------------------
+// Shifts
+// ---------------------------------------------------------------------
+
+export async function getOpenShiftAction(input: { branchId: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  try {
+    const shift = await getOpenShift(DEMO_TENANT_ID, input.branchId, ctx.userId);
+    return { shift };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to load shift' };
+  }
+}
+
+const openShiftSchema = z.object({
+  branchId: z.string().uuid(),
+  openingFloatCents: z.number().int().min(0).max(10_000_000),
+});
+
+export async function openShiftAction(input: { branchId: string; openingFloatCents: number }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = openShiftSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    const result = await openShift({
+      tenantId: DEMO_TENANT_ID,
+      branchId: parsed.data.branchId,
+      cashierId: ctx.userId,
+      openingFloatCents: parsed.data.openingFloatCents,
+    });
+    return { result };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to open shift' };
+  }
+}
+
+const closeShiftSchema = z.object({
+  shiftId: z.string().uuid(),
+  countedCashCents: z.number().int().min(0).max(50_000_000),
+  closeNote: z.string().trim().max(500).optional(),
+});
+
+export async function closeShiftAction(input: { shiftId: string; countedCashCents: number; closeNote?: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = closeShiftSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    const result = await closeShift({ ...parsed.data, actorId: ctx.userId });
+    return { result };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to close shift' };
+  }
+}
+
+export async function getShiftSummaryAction(input: { shiftId: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  try {
+    const summary = await getShiftSummary(input.shiftId);
+    return { summary };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to load shift summary' };
+  }
+}
+
+// ---------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------
+
+const openTabSchema = z.object({
+  branchId: z.string().uuid(),
+  customerId: z.string().uuid().optional(),
+  label: z.string().trim().max(80).optional(),
+});
+
+export async function openTabAction(input: { branchId: string; customerId?: string; label?: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = openTabSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    const shift = await getOpenShift(DEMO_TENANT_ID, parsed.data.branchId, ctx.userId);
+    if (!shift) return { error: 'no_open_shift' };
+
+    const result = await openTab({
+      tenantId: DEMO_TENANT_ID,
+      branchId: parsed.data.branchId,
+      shiftId: shift.id,
+      openedBy: ctx.userId,
+      customerId: parsed.data.customerId,
+      label: parsed.data.label,
+    });
+    return { result };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to open tab' };
+  }
+}
+
+export async function getOpenTabsAction(input: { branchId: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  try {
+    const tabs = await getOpenTabs(DEMO_TENANT_ID, input.branchId);
+    return { tabs };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to load tabs' };
+  }
+}
+
+export async function getTabAction(input: { tabId: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  try {
+    const tab = await getTab(input.tabId);
+    return { tab };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to load tab' };
+  }
+}
+
+const voidTabSchema = z.object({ tabId: z.string().uuid(), reason: z.string().trim().min(1).max(200) });
+
+export async function voidTabAction(input: { tabId: string; reason: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = voidTabSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    await voidTab(parsed.data.tabId, parsed.data.reason, ctx.userId);
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to void tab' };
+  }
+}
+
+const settleTabSchema = z.object({
+  tabId: z.string().uuid(),
+  payments: z
+    .array(
+      z.object({
+        method: z.enum(['cash', 'card', 'wallet']),
+        amountCents: z.number().int().positive(),
+      })
+    )
+    .min(1),
+});
+
+export async function settleTabAction(input: {
+  tabId: string;
+  payments: Array<{ method: 'cash' | 'card' | 'wallet'; amountCents: number }>;
+}) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = settleTabSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    const result = await settleTab({ tabId: parsed.data.tabId, payments: parsed.data.payments, actorId: ctx.userId });
+    return { result };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to settle tab' };
   }
 }

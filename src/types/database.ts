@@ -126,6 +126,7 @@ export interface Database {
           source_payment_id: string | null;
           source_session_id: string | null;
           corrects_invoice_id: string | null;
+          source_tab_id: string | null;
         };
         Insert: Partial<Database['public']['Tables']['invoices']['Row']> & {
           tenant_id: string;
@@ -458,6 +459,7 @@ export interface Database {
           captured_at: string | null;
           failed_at: string | null;
           failure_reason: string | null;
+          shift_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -468,6 +470,87 @@ export interface Database {
           provider: Database['public']['Enums']['payment_provider'];
         };
         Update: Partial<Database['public']['Tables']['payments']['Row']>;
+        Relationships: [];
+      };
+      cashier_shifts: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          branch_id: string;
+          cashier_id: string;
+          opened_at: string;
+          opening_float_cents: number;
+          closed_at: string | null;
+          expected_cash_cents: number | null;
+          expected_card_cents: number | null;
+          expected_wallet_cents: number | null;
+          counted_cash_cents: number | null;
+          variance_cents: number | null;
+          close_note: string | null;
+          status: 'open' | 'closed';
+        };
+        Insert: Partial<Database['public']['Tables']['cashier_shifts']['Row']> & {
+          tenant_id: string;
+          branch_id: string;
+          cashier_id: string;
+        };
+        Update: Partial<Database['public']['Tables']['cashier_shifts']['Row']>;
+        Relationships: [];
+      };
+      tabs: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          branch_id: string;
+          shift_id: string | null;
+          customer_id: string | null;
+          label: string | null;
+          opened_by: string;
+          opened_at: string;
+          status: 'open' | 'settled' | 'void';
+          settled_at: string | null;
+          total_cents: number;
+        };
+        Insert: Partial<Database['public']['Tables']['tabs']['Row']> & {
+          tenant_id: string;
+          branch_id: string;
+          opened_by: string;
+        };
+        Update: Partial<Database['public']['Tables']['tabs']['Row']>;
+        Relationships: [];
+      };
+      tab_items: {
+        Row: {
+          id: string;
+          tab_id: string;
+          description: string;
+          session_id: string | null;
+          amount_cents: number;
+          created_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['tab_items']['Row']> & {
+          tab_id: string;
+          description: string;
+          amount_cents: number;
+        };
+        Update: Partial<Database['public']['Tables']['tab_items']['Row']>;
+        Relationships: [];
+      };
+      tab_payments: {
+        Row: {
+          id: string;
+          tab_id: string;
+          method: 'cash' | 'card' | 'wallet';
+          amount_cents: number;
+          payment_id: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['tab_payments']['Row']> & {
+          tab_id: string;
+          method: 'cash' | 'card' | 'wallet';
+          amount_cents: number;
+        };
+        Update: Partial<Database['public']['Tables']['tab_payments']['Row']>;
         Relationships: [];
       };
       queue_tickets: {
@@ -596,6 +679,7 @@ export interface Database {
           p_source_payment_id: string | null;
           p_source_session_id: string | null;
           p_corrects_invoice_id: string | null;
+          p_source_tab_id?: string | null;
         };
         Returns: Database['public']['Tables']['invoices']['Row'];
       };
@@ -680,7 +764,7 @@ export interface Database {
       session_status: 'active' | 'paused' | 'extended' | 'ended' | 'frozen';
       queue_ticket_status: 'waiting' | 'called' | 'seated' | 'expired' | 'cancelled';
       payment_provider: 'moyasar' | 'hyperpay' | 'cash' | 'manual';
-      payment_method: 'mada' | 'visa' | 'mastercard' | 'apple_pay' | 'stc_pay' | 'cash' | 'wallet';
+      payment_method: 'mada' | 'visa' | 'mastercard' | 'apple_pay' | 'stc_pay' | 'cash' | 'wallet' | 'card';
       payment_status: 'initiated' | 'pending' | 'authorized' | 'captured' | 'failed' | 'refunded' | 'partially_refunded' | 'cancelled';
       payment_purpose: 'deposit' | 'session' | 'extension' | 'top_up' | 'reward_purchase' | 'queue_hold' | 'wallet_topup' | 'other';
       loyalty_tier: 'silver' | 'gold' | 'platinum' | 'vip' | 'diamond';

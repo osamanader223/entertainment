@@ -6,6 +6,7 @@ import { runLightSequence } from '@/lib/ifttt';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 import { isStationFreeForWindow } from '@/lib/station-overlap';
 import { issueInvoiceForPayment } from '@/lib/invoices';
+import { addSessionToTab } from '@/lib/tabs';
 
 export interface CashierCustomer {
   id: string;
@@ -176,8 +177,13 @@ export interface StartCashierSessionArgs {
   customerId: string;
   customerLabel: string;
   durationMinutes: number;
-  paymentMethod: 'cash' | 'wallet';
+  /** Required unless tabId is set — a tab-mode seating defers payment to settlement. */
+  paymentMethod?: 'cash' | 'wallet';
   actorId: string;
+  /** The cashier's currently open shift — every cashier transaction is stamped with it. */
+  shiftId: string;
+  /** When set, the charge is added as a tab line item instead of paid immediately. */
+  tabId?: string;
   /** Bowling only — resolved by the caller via computeBowlingDuration(). */
   playerCount?: number;
   gameCount?: number;
@@ -186,14 +192,15 @@ export interface StartCashierSessionArgs {
 
 export interface StartCashierSessionResult {
   sessionId: string;
-  paymentId: string;
+  paymentId: string | null;
   amountCents: number;
 }
 
 /**
  * Seat a walk-in customer at a station: validate availability, charge them
- * (cash record or wallet debit), open the session, and log the activity.
- * The sync_station_status trigger flips the station to 'occupied' on session insert.
+ * (cash record or wallet debit) OR add the charge to a running tab, open the
+ * session, and log the activity. The sync_station_status trigger flips the
+ * station to 'occupied' on session insert.
  */
 export async function startCashierSession({
   tenantId,
@@ -204,10 +211,13 @@ export async function startCashierSession({
   durationMinutes,
   paymentMethod,
   actorId,
+  shiftId,
+  tabId,
   playerCount,
   gameCount,
   predictedDurationMinutes,
 }: StartCashierSessionArgs): Promise<StartCashierSessionResult> {
+  if (!tabId && !paymentMethod) throw new Error('payment_method_required');
   const admin = createAdminClient();
 
   const { data: station, error: stationError } = await admin
@@ -243,40 +253,6 @@ export async function startCashierSession({
     .maybeSingle();
   const isRealCustomer = !!profile && !profile.walk_in_created;
 
-  // Wallet debit is atomic (RPC) and validated first so we don't record a
-  // payment/session if the customer can't actually cover the charge.
-  if (paymentMethod === 'wallet') {
-    await debitWallet({
-      tenantId,
-      customerId,
-      amountCents,
-      kind: 'debit_booking',
-      reason: `Cashier session — ${station.display_name}`,
-      referenceType: 'session',
-      createdBy: actorId,
-    });
-  }
-
-  const { data: payment, error: paymentError } = await admin
-    .from('payments')
-    .insert({
-      tenant_id: tenantId,
-      branch_id: branchId,
-      customer_id: customerId,
-      purpose: 'session',
-      amount_cents: amountCents,
-      currency: 'SAR',
-      provider: paymentMethod === 'cash' ? 'cash' : 'manual',
-      method: paymentMethod,
-      status: 'captured',
-      captured_at: new Date().toISOString(),
-      initiated_by: actorId,
-    })
-    .select('id')
-    .single();
-
-  if (paymentError || !payment) throw paymentError ?? new Error('Failed to record payment');
-
   const { data: session, error: sessionError } = await admin
     .from('sessions')
     .insert({
@@ -305,8 +281,53 @@ export async function startCashierSession({
     action: 'session.started_by_cashier',
     entity_type: 'session',
     entity_id: session.id,
-    after: { station_id: stationId, customer_id: customerId, amount_cents: amountCents },
+    after: { station_id: stationId, customer_id: customerId, amount_cents: amountCents, tab_id: tabId ?? null },
   });
+
+  void fireStartLightSequence(station.code, station.game_type_id, branchId);
+
+  // Tab mode: defer payment to settlement. No wallet debit, no payments row,
+  // no invoice, no points — all of that happens once, for the whole tab
+  // total, in settleTab().
+  if (tabId) {
+    await addSessionToTab(tabId, session.id, amountCents, `${station.display_name}`);
+    return { sessionId: session.id, paymentId: null, amountCents };
+  }
+
+  // Wallet debit is atomic (RPC) and validated first so we don't record a
+  // payment/session if the customer can't actually cover the charge.
+  if (paymentMethod === 'wallet') {
+    await debitWallet({
+      tenantId,
+      customerId,
+      amountCents,
+      kind: 'debit_booking',
+      reason: `Cashier session — ${station.display_name}`,
+      referenceType: 'session',
+      createdBy: actorId,
+    });
+  }
+
+  const { data: payment, error: paymentError } = await admin
+    .from('payments')
+    .insert({
+      tenant_id: tenantId,
+      branch_id: branchId,
+      customer_id: customerId,
+      purpose: 'session',
+      amount_cents: amountCents,
+      currency: 'SAR',
+      provider: paymentMethod === 'cash' ? 'cash' : 'manual',
+      method: paymentMethod,
+      status: 'captured',
+      captured_at: new Date().toISOString(),
+      initiated_by: actorId,
+      shift_id: shiftId,
+    } as never)
+    .select('id')
+    .single();
+
+  if (paymentError || !payment) throw paymentError ?? new Error('Failed to record payment');
 
   // ZATCA Phase 1: every paid transaction gets an invoice. Awaited (not
   // fire-and-forget) so issuance actually happens before this returns — but
@@ -338,8 +359,6 @@ export async function startCashierSession({
       actorId,
     });
   }
-
-  void fireStartLightSequence(station.code, station.game_type_id, branchId);
 
   return { sessionId: session.id, paymentId: payment.id, amountCents };
 }
