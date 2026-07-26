@@ -6,7 +6,7 @@ import { runLightSequence } from '@/lib/ifttt';
 import { awardPoints, computePointsEarned } from '@/lib/loyalty';
 import { isStationFreeForWindow } from '@/lib/station-overlap';
 import { issueInvoiceForPayment } from '@/lib/invoices';
-import { addSessionToTab } from '@/lib/tabs';
+import { addSessionToCart } from '@/lib/carts';
 
 export interface CashierCustomer {
   id: string;
@@ -177,13 +177,13 @@ export interface StartCashierSessionArgs {
   customerId: string;
   customerLabel: string;
   durationMinutes: number;
-  /** Required unless tabId is set — a tab-mode seating defers payment to settlement. */
+  /** Required unless cartId is set — a cart-mode seating defers payment to settlement. */
   paymentMethod?: 'cash' | 'wallet';
   actorId: string;
   /** The cashier's currently open shift — every cashier transaction is stamped with it. */
   shiftId: string;
-  /** When set, the charge is added as a tab line item instead of paid immediately. */
-  tabId?: string;
+  /** When set, the charge is added as a cart line item instead of paid immediately. */
+  cartId?: string;
   /** Bowling only — resolved by the caller via computeBowlingDuration(). */
   playerCount?: number;
   gameCount?: number;
@@ -198,7 +198,7 @@ export interface StartCashierSessionResult {
 
 /**
  * Seat a walk-in customer at a station: validate availability, charge them
- * (cash record or wallet debit) OR add the charge to a running tab, open the
+ * (cash record or wallet debit) OR add the charge to a running cart, open the
  * session, and log the activity. The sync_station_status trigger flips the
  * station to 'occupied' on session insert.
  */
@@ -212,12 +212,12 @@ export async function startCashierSession({
   paymentMethod,
   actorId,
   shiftId,
-  tabId,
+  cartId,
   playerCount,
   gameCount,
   predictedDurationMinutes,
 }: StartCashierSessionArgs): Promise<StartCashierSessionResult> {
-  if (!tabId && !paymentMethod) throw new Error('payment_method_required');
+  if (!cartId && !paymentMethod) throw new Error('payment_method_required');
   const admin = createAdminClient();
 
   const { data: station, error: stationError } = await admin
@@ -281,16 +281,16 @@ export async function startCashierSession({
     action: 'session.started_by_cashier',
     entity_type: 'session',
     entity_id: session.id,
-    after: { station_id: stationId, customer_id: customerId, amount_cents: amountCents, tab_id: tabId ?? null },
+    after: { station_id: stationId, customer_id: customerId, amount_cents: amountCents, cart_id: cartId ?? null },
   });
 
   void fireStartLightSequence(station.code, station.game_type_id, branchId);
 
-  // Tab mode: defer payment to settlement. No wallet debit, no payments row,
-  // no invoice, no points — all of that happens once, for the whole tab
-  // total, in settleTab().
-  if (tabId) {
-    await addSessionToTab(tabId, session.id, amountCents, `${station.display_name}`);
+  // Cart mode: defer payment to settlement. No wallet debit, no payments row,
+  // no invoice, no points — all of that happens once, for the whole cart
+  // total, in settleCart().
+  if (cartId) {
+    await addSessionToCart(cartId, session.id, amountCents, `${station.display_name}`);
     return { sessionId: session.id, paymentId: null, amountCents };
   }
 

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import QRCode from 'qrcode';
 import { ArrowLeft } from 'lucide-react';
 import { requireAuth, userHasAnyRole } from '@/lib/auth';
-import { getInvoiceById } from '@/lib/invoices';
+import { getInvoiceById, getInvoicePaymentBreakdown } from '@/lib/invoices';
 import { getServerDict } from '@/i18n/server';
 import { InvoiceDocument } from '@/components/invoices/invoice-document';
 
@@ -23,6 +23,7 @@ export default async function InvoiceViewPage({ params }: { params: Promise<{ in
   if (!invoice) notFound();
 
   const qrDataUrl = await QRCode.toDataURL(invoice.qr_tlv_base64, { margin: 1, width: 280 });
+  const paymentBreakdown = await getInvoicePaymentBreakdown(invoice);
 
   let correctedByLabel: string | undefined;
   if (invoice.corrects_invoice_id) {
@@ -38,7 +39,14 @@ export default async function InvoiceViewPage({ params }: { params: Promise<{ in
           {d.invoices.backToList}
         </Link>
       </div>
-      <InvoiceDocument invoice={invoice} qrDataUrl={qrDataUrl} d={d} locale={locale} correctedByLabel={correctedByLabel} />
+      <InvoiceDocument
+        invoice={invoice}
+        qrDataUrl={qrDataUrl}
+        d={d}
+        locale={locale}
+        correctedByLabel={correctedByLabel}
+        paymentBreakdown={paymentBreakdown}
+      />
     </div>
   );
 }

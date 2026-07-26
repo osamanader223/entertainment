@@ -1,4 +1,4 @@
-import type { InvoiceRow } from '@/lib/invoices';
+import type { InvoiceRow, InvoicePaymentBreakdownLine } from '@/lib/invoices';
 import type { getServerDict } from '@/i18n/server';
 import { formatMoney } from '@/lib/utils';
 import { PrintButton } from './print-button';
@@ -16,7 +16,19 @@ interface InvoiceDocumentProps {
   d: Dict;
   locale: 'ar' | 'en';
   correctedByLabel?: string; // e.g. "Invoice #12"
+  paymentBreakdown?: InvoicePaymentBreakdownLine[];
 }
+
+const METHOD_LABEL: Record<InvoicePaymentBreakdownLine['method'], { en: string; ar: string }> = {
+  cash: { en: 'Cash', ar: 'نقداً' },
+  card: { en: 'Card', ar: 'بطاقة' },
+  wallet: { en: 'Wallet', ar: 'المحفظة' },
+  mada: { en: 'Card (Mada)', ar: 'بطاقة (مدى)' },
+  visa: { en: 'Card (Visa)', ar: 'بطاقة (فيزا)' },
+  mastercard: { en: 'Card (Mastercard)', ar: 'بطاقة (ماستركارد)' },
+  apple_pay: { en: 'Apple Pay', ar: 'أبل باي' },
+  stc_pay: { en: 'STC Pay', ar: 'إس تي سي باي' },
+};
 
 const TYPE_TITLE_KEY: Record<InvoiceRow['invoice_type'], keyof Dict['invoices']> = {
   simplified: 'simplifiedTaxInvoice',
@@ -31,7 +43,7 @@ const TYPE_TITLE_KEY: Record<InvoiceRow['invoice_type'], keyof Dict['invoices']>
  * Deliberately plain, high-contrast, print-friendly markup (not the neon
  * app chrome) — this is a paper/PDF artifact, not an app screen.
  */
-export function InvoiceDocument({ invoice, qrDataUrl, d, locale, correctedByLabel }: InvoiceDocumentProps) {
+export function InvoiceDocument({ invoice, qrDataUrl, d, locale, correctedByLabel, paymentBreakdown }: InvoiceDocumentProps) {
   const title = d.invoices[TYPE_TITLE_KEY[invoice.invoice_type]];
   const issuedDate = new Date(invoice.issued_at);
   const dateLabel = new Intl.DateTimeFormat(locale === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US', {
@@ -123,6 +135,23 @@ export function InvoiceDocument({ invoice, qrDataUrl, d, locale, correctedByLabe
           </div>
         </div>
       </div>
+
+      {paymentBreakdown && paymentBreakdown.length > 0 && (
+        <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
+          <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">{d.invoices.paidVia}</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            {paymentBreakdown.map((line, i) => (
+              <span key={i} dir="ltr">
+                {locale === 'ar' ? METHOD_LABEL[line.method].ar : METHOD_LABEL[line.method].en}: {formatMoney(line.amountCents)}
+                {line.cardReference ? ` (${line.cardReference})` : ''}
+              </span>
+            ))}
+            <span className="font-semibold" dir="ltr">
+              {d.invoices.total}: {formatMoney(invoice.total_cents)}
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-300">
         <div>

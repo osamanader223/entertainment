@@ -14,9 +14,23 @@ import {
   startCashierSession,
 } from '@/lib/cashier';
 import { openShift, getOpenShift, closeShift, getShiftSummary } from '@/lib/shifts';
-import { openTab, getOpenTabs, getTab, voidTab, settleTab } from '@/lib/tabs';
+import {
+  openCart,
+  getOpenCarts,
+  getCart,
+  removeCartItem,
+  voidCart,
+  settleCart,
+  linkCustomerToCart,
+  updateCartItemQuantity,
+  applyCartDiscount,
+  applyLineDiscount,
+  clearCartDiscount,
+} from '@/lib/carts';
+import { searchInvoices, getLastInvoice, getInvoicePaymentBreakdown, getInvoiceById, issueCreditNote } from '@/lib/invoices';
 
 const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111';
+const DEMO_BRANCH_ID_FALLBACK = '22222222-2222-2222-2222-222222222222';
 const STAFF_ROLES = ['staff', 'manager', 'tenant_admin'] as const;
 
 /** True if a game type's code marks it as bowling (players+games, not duration-based). */
@@ -25,6 +39,10 @@ async function isBowlingGameType(gameTypeId: string): Promise<boolean> {
   const { data } = await admin.from('game_types').select('code').eq('id', gameTypeId).maybeSingle();
   return !!data?.code?.toLowerCase().includes('bowl');
 }
+
+// ---------------------------------------------------------------------
+// Instant phone search + quick customer add
+// ---------------------------------------------------------------------
 
 const lookupSchema = z.object({ phone: phoneSchema });
 
@@ -160,7 +178,7 @@ const startSessionSchema = z.object({
   playerCount: z.number().int().min(1).max(8).optional(),
   gameCount: z.union([z.literal(1), z.literal(2)]).optional(),
   paymentMethod: z.enum(['cash', 'wallet']).optional(),
-  tabId: z.string().uuid().optional(),
+  cartId: z.string().uuid().optional(),
 });
 
 export async function startCashierSessionAction(input: {
@@ -172,7 +190,7 @@ export async function startCashierSessionAction(input: {
   playerCount?: number;
   gameCount?: 1 | 2;
   paymentMethod?: 'cash' | 'wallet';
-  tabId?: string;
+  cartId?: string;
 }) {
   const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
 
@@ -180,7 +198,7 @@ export async function startCashierSessionAction(input: {
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
   }
-  if (!parsed.data.tabId && !parsed.data.paymentMethod) {
+  if (!parsed.data.cartId && !parsed.data.paymentMethod) {
     return { error: 'Choose pay now or add to tab' };
   }
 
@@ -217,7 +235,7 @@ export async function startCashierSessionAction(input: {
       paymentMethod: parsed.data.paymentMethod,
       actorId: ctx.userId,
       shiftId: shift.id,
-      tabId: parsed.data.tabId,
+      cartId: parsed.data.cartId,
       playerCount: parsed.data.playerCount,
       gameCount: parsed.data.gameCount,
       predictedDurationMinutes,
@@ -295,25 +313,25 @@ export async function getShiftSummaryAction(input: { shiftId: string }) {
 }
 
 // ---------------------------------------------------------------------
-// Tabs
+// Carts (cart === tab; a cart settled immediately IS a "pay now" checkout)
 // ---------------------------------------------------------------------
 
-const openTabSchema = z.object({
+const openCartSchema = z.object({
   branchId: z.string().uuid(),
   customerId: z.string().uuid().optional(),
   label: z.string().trim().max(80).optional(),
 });
 
-export async function openTabAction(input: { branchId: string; customerId?: string; label?: string }) {
+export async function openCartAction(input: { branchId: string; customerId?: string; label?: string }) {
   const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
-  const parsed = openTabSchema.safeParse(input);
+  const parsed = openCartSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
 
   try {
     const shift = await getOpenShift(DEMO_TENANT_ID, parsed.data.branchId, ctx.userId);
     if (!shift) return { error: 'no_open_shift' };
 
-    const result = await openTab({
+    const result = await openCart({
       tenantId: DEMO_TENANT_ID,
       branchId: parsed.data.branchId,
       shiftId: shift.id,
@@ -323,69 +341,243 @@ export async function openTabAction(input: { branchId: string; customerId?: stri
     });
     return { result };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Failed to open tab' };
+    return { error: e instanceof Error ? e.message : 'Failed to open cart' };
   }
 }
 
-export async function getOpenTabsAction(input: { branchId: string }) {
+export async function getOpenCartsAction(input: { branchId: string }) {
   await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
   try {
-    const tabs = await getOpenTabs(DEMO_TENANT_ID, input.branchId);
-    return { tabs };
+    const carts = await getOpenCarts(DEMO_TENANT_ID, input.branchId);
+    return { carts };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Failed to load tabs' };
+    return { error: e instanceof Error ? e.message : 'Failed to load carts' };
   }
 }
 
-export async function getTabAction(input: { tabId: string }) {
+export async function getCartAction(input: { cartId: string }) {
   await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
   try {
-    const tab = await getTab(input.tabId);
-    return { tab };
+    const cart = await getCart(input.cartId);
+    return { cart };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Failed to load tab' };
+    return { error: e instanceof Error ? e.message : 'Failed to load cart' };
   }
 }
 
-const voidTabSchema = z.object({ tabId: z.string().uuid(), reason: z.string().trim().min(1).max(200) });
+const removeCartItemSchema = z.object({ cartItemId: z.string().uuid() });
 
-export async function voidTabAction(input: { tabId: string; reason: string }) {
+export async function removeCartItemAction(input: { cartItemId: string }) {
   const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
-  const parsed = voidTabSchema.safeParse(input);
+  const parsed = removeCartItemSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
 
   try {
-    await voidTab(parsed.data.tabId, parsed.data.reason, ctx.userId);
+    await removeCartItem(parsed.data.cartItemId, ctx.userId);
     return { ok: true };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Failed to void tab' };
+    return { error: e instanceof Error ? e.message : 'Failed to remove item' };
   }
 }
 
-const settleTabSchema = z.object({
-  tabId: z.string().uuid(),
+const linkCustomerSchema = z.object({ cartId: z.string().uuid(), customerId: z.string().uuid() });
+
+export async function linkCustomerToCartAction(input: { cartId: string; customerId: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = linkCustomerSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    await linkCustomerToCart(parsed.data.cartId, parsed.data.customerId, ctx.userId);
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to link customer' };
+  }
+}
+
+const voidCartSchema = z.object({ cartId: z.string().uuid(), reason: z.string().trim().min(1).max(200) });
+
+export async function voidCartAction(input: { cartId: string; reason: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = voidCartSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    await voidCart(parsed.data.cartId, parsed.data.reason, ctx.userId);
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to void cart' };
+  }
+}
+
+const settleCartSchema = z.object({
+  cartId: z.string().uuid(),
   payments: z
     .array(
       z.object({
         method: z.enum(['cash', 'card', 'wallet']),
         amountCents: z.number().int().positive(),
+        cardReference: z.string().trim().max(80).optional(),
       })
     )
     .min(1),
 });
 
-export async function settleTabAction(input: {
-  tabId: string;
-  payments: Array<{ method: 'cash' | 'card' | 'wallet'; amountCents: number }>;
+export async function settleCartAction(input: {
+  cartId: string;
+  payments: Array<{ method: 'cash' | 'card' | 'wallet'; amountCents: number; cardReference?: string }>;
 }) {
   const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
-  const parsed = settleTabSchema.safeParse(input);
+  const parsed = settleCartSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
 
   try {
-    const result = await settleTab({ tabId: parsed.data.tabId, payments: parsed.data.payments, actorId: ctx.userId });
+    const result = await settleCart({ cartId: parsed.data.cartId, payments: parsed.data.payments, actorId: ctx.userId });
     return { result };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Failed to settle tab' };
+    return { error: e instanceof Error ? e.message : 'Failed to settle cart' };
+  }
+}
+
+// ---------------------------------------------------------------------
+// Line-item editing (Prompt 2)
+// ---------------------------------------------------------------------
+
+const updateQuantitySchema = z.object({ cartItemId: z.string().uuid(), quantity: z.number().int().min(1).max(999) });
+
+export async function updateCartItemQuantityAction(input: { cartItemId: string; quantity: number }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = updateQuantitySchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    await updateCartItemQuantity(parsed.data.cartItemId, parsed.data.quantity, ctx.userId);
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to update quantity' };
+  }
+}
+
+// ---------------------------------------------------------------------
+// Ad-hoc discounts (Prompt 2)
+// ---------------------------------------------------------------------
+
+const discountSchema = z.object({ type: z.enum(['flat', 'percent']), value: z.number().min(0).max(1_000_000) });
+
+const applyCartDiscountSchema = z.object({ cartId: z.string().uuid() }).merge(discountSchema);
+
+export async function applyCartDiscountAction(input: { cartId: string; type: 'flat' | 'percent'; value: number }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = applyCartDiscountSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    await applyCartDiscount({ cartId: parsed.data.cartId, type: parsed.data.type, value: parsed.data.value, actorId: ctx.userId });
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to apply discount' };
+  }
+}
+
+const applyLineDiscountSchema = z.object({ cartItemId: z.string().uuid() }).merge(discountSchema);
+
+export async function applyLineDiscountAction(input: { cartItemId: string; type: 'flat' | 'percent'; value: number }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = applyLineDiscountSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    await applyLineDiscount({ cartItemId: parsed.data.cartItemId, type: parsed.data.type, value: parsed.data.value, actorId: ctx.userId });
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to apply discount' };
+  }
+}
+
+const clearCartDiscountSchema = z.object({ cartId: z.string().uuid() });
+
+export async function clearCartDiscountAction(input: { cartId: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = clearCartDiscountSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    await clearCartDiscount(parsed.data.cartId, ctx.userId);
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to clear discount' };
+  }
+}
+
+// ---------------------------------------------------------------------
+// Invoice search / history + reprint (Prompt 2)
+// ---------------------------------------------------------------------
+
+const searchInvoicesSchema = z.object({
+  branchId: z.string().uuid(),
+  query: z.string().trim().max(80).optional(),
+  shiftId: z.string().uuid().optional(),
+});
+
+export async function searchInvoicesAction(input: { branchId: string; query?: string; shiftId?: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = searchInvoicesSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    const invoices = await searchInvoices({ tenantId: DEMO_TENANT_ID, branchId: parsed.data.branchId, query: parsed.data.query, shiftId: parsed.data.shiftId });
+    return { invoices };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to search invoices' };
+  }
+}
+
+export async function getLastInvoiceAction(input: { branchId: string; shiftId?: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  try {
+    const invoice = await getLastInvoice(DEMO_TENANT_ID, input.branchId, input.shiftId);
+    if (!invoice) return { invoice: null };
+    const paymentBreakdown = await getInvoicePaymentBreakdown(invoice);
+    return { invoice, paymentBreakdown };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to load last invoice' };
+  }
+}
+
+export async function getInvoiceForReceiptAction(input: { invoiceId: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  try {
+    const invoice = await getInvoiceById(input.invoiceId, DEMO_TENANT_ID);
+    if (!invoice) return { error: 'Invoice not found' };
+    const paymentBreakdown = await getInvoicePaymentBreakdown(invoice);
+    return { invoice, paymentBreakdown };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to load invoice' };
+  }
+}
+
+const issueCreditNoteSchema = z.object({ invoiceId: z.string().uuid() });
+
+/**
+ * Basic refund/return stub: wires to the existing credit-note mechanism
+ * (issueCreditNote) — a full immutable credit note reversing the original
+ * invoice's amounts. NOT a partial refund and doesn't touch wallet/cash —
+ * that's a bigger feature than this prompt covers; flagged in the summary.
+ */
+export async function issueCreditNoteFromCashierAction(input: { invoiceId: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = issueCreditNoteSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    const result = await issueCreditNote({
+      tenantId: DEMO_TENANT_ID,
+      branchId: DEMO_BRANCH_ID_FALLBACK,
+      originalInvoiceId: parsed.data.invoiceId,
+      issuedBy: ctx.userId,
+    });
+    return { result };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to issue credit note' };
   }
 }

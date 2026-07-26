@@ -10,11 +10,13 @@ import { PhonePad } from './phone-pad';
 import { GameTypePicker } from './game-type-picker';
 import { StationPicker } from './station-picker';
 import { ShiftBar, type OpenShiftState } from './shift-bar';
-import { TabsPanel } from './tabs-panel';
+import { CartPanel } from './cart-panel';
+import { CustomerSearchBar } from './customer-search-bar';
+import { InvoiceHistoryPanel } from './invoice-history-panel';
 import type { PublicVenueState, PublicStation } from '@/lib/venue';
 import { useLiveVenueState } from '@/hooks/useLiveVenueState';
 import { cn, formatMoney, normalizePhone } from '@/lib/utils';
-import { Loader2, Pencil, Banknote, Wallet, CheckCircle2, Radio, Receipt } from 'lucide-react';
+import { Loader2, Pencil, Banknote, Wallet, CheckCircle2, Radio, Receipt, History, Printer } from 'lucide-react';
 import {
   lookupCustomerAction,
   createWalkInCustomerAction,
@@ -22,8 +24,8 @@ import {
   getCustomerWalletBalanceAction,
   startCashierSessionAction,
   getOpenShiftAction,
-  getOpenTabsAction,
-  openTabAction,
+  openCartAction,
+  getLastInvoiceAction,
 } from '@/app/(dashboard)/dashboard/cashier/actions';
 import { useT } from '@/i18n/context';
 
@@ -81,13 +83,24 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | null>(null);
   const [seatPending, startSeat] = useTransition();
 
-  // --- Shift + tabs ---
+  // --- Shift + carts ---
   const [shift, setShift] = useState<OpenShiftState | null>(null);
-  const [tabsRefreshKey, setTabsRefreshKey] = useState(0);
+  const [cartsRefreshKey, setCartsRefreshKey] = useState(0);
+  const [activeCartId, setActiveCartId] = useState<string | null>(null);
   const [seatMode, setSeatMode] = useState<'pay_now' | 'tab'>('pay_now');
-  const [tabChoice, setTabChoice] = useState<'new' | string>('new');
-  const [newTabLabel, setNewTabLabel] = useState('');
-  const [openTabOptions, setOpenTabOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [reprintPending, startReprint] = useTransition();
+
+  const handleReprintLast = () => {
+    startReprint(async () => {
+      const res = await getLastInvoiceAction({ branchId, shiftId: shift?.id });
+      if (res.error || !res.invoice) {
+        toast.error(res.error ?? t('pos.noInvoiceToReprint'));
+        return;
+      }
+      window.open(`/invoices/${res.invoice.id}/receipt`, '_blank');
+    });
+  };
 
   useEffect(() => {
     (async () => {
@@ -97,15 +110,6 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
       }
     })();
   }, [branchId]);
-
-  useEffect(() => {
-    (async () => {
-      const res = await getOpenTabsAction({ branchId });
-      if (!res.error && res.tabs) {
-        setOpenTabOptions(res.tabs.map((tb) => ({ id: tb.id, label: tb.customerName || tb.label || 'Tab' })));
-      }
-    })();
-  }, [branchId, tabsRefreshKey]);
 
   const normalizedPhone = useMemo(() => normalizePhone(phone, 'SA'), [phone]);
 
@@ -261,22 +265,22 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
     if (seatMode === 'pay_now' && !paymentMethod) return;
 
     startSeat(async () => {
-      let tabId: string | undefined;
-      if (seatMode === 'tab') {
-        if (tabChoice === 'new') {
-          const tabRes = await openTabAction({
-            branchId,
-            customerId: customer.id,
-            label: newTabLabel.trim() || undefined,
-          });
-          if (tabRes.error || !tabRes.result) {
-            toast.error(tabRes.error === 'no_open_shift' ? t('shifts.mustOpenShiftFirst') : (tabRes.error ?? t('tabs.failedToOpen')));
-            return;
-          }
-          tabId = tabRes.result.tabId;
-        } else {
-          tabId = tabChoice;
+      let cartId: string | undefined = activeCartId ?? undefined;
+      if (seatMode === 'tab' && !cartId) {
+        // No active cart selected — open one for this customer so "add to
+        // tab" always has somewhere to land (mirrors clicking "New tab" /
+        // Alt+N in the cart panel first).
+        const cartRes = await openCartAction({
+          branchId,
+          customerId: customer.id,
+          label: customer.full_name?.trim() || customer.phone,
+        });
+        if (cartRes.error || !cartRes.result) {
+          toast.error(cartRes.error === 'no_open_shift' ? t('shifts.mustOpenShiftFirst') : (cartRes.error ?? t('tabs.failedToOpen')));
+          return;
         }
+        cartId = cartRes.result.cartId;
+        setActiveCartId(cartId);
       }
 
       const res = await startCashierSessionAction({
@@ -288,7 +292,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
         playerCount: isBowling ? playerCount : undefined,
         gameCount: isBowling ? gameCount : undefined,
         paymentMethod: seatMode === 'pay_now' ? (paymentMethod ?? undefined) : undefined,
-        tabId,
+        cartId: seatMode === 'tab' ? cartId : undefined,
       });
       if (res.error) {
         // 'station_reserved' means an upcoming reservation on this station
@@ -320,9 +324,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
       setBowlingDurationMinutes(null);
       setEstimatedPrice(null);
       setSeatMode('pay_now');
-      setTabChoice('new');
-      setNewTabLabel('');
-      setTabsRefreshKey((k) => k + 1);
+      setCartsRefreshKey((k) => k + 1);
     });
   };
 
@@ -334,6 +336,25 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
         onShiftOpened={setShift}
         onShiftClosed={() => setShift(null)}
       />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex-1 min-w-[240px]">
+          <CustomerSearchBar
+            activeCartId={activeCartId}
+            onLinked={() => setCartsRefreshKey((k) => k + 1)}
+          />
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
+          <History className="h-3.5 w-3.5" />
+          {t('pos.invoiceHistory')}
+        </Button>
+        <Button variant="outline" size="sm" disabled={reprintPending} onClick={handleReprintLast}>
+          {reprintPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+          {t('pos.reprintLastInvoice')}
+        </Button>
+      </div>
+
+      <InvoiceHistoryPanel branchId={branchId} shiftId={shift?.id ?? null} open={historyOpen} onClose={() => setHistoryOpen(false)} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Section 1 — Customer */}
@@ -618,39 +639,9 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
               )}
             </>
           ) : (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant={tabChoice === 'new' ? 'gold' : 'outline'}
-                  size="lg"
-                  onClick={() => setTabChoice('new')}
-                >
-                  {t('tabs.newTab')}
-                </Button>
-                <select
-                  value={tabChoice === 'new' ? '' : tabChoice}
-                  onChange={(e) => setTabChoice(e.target.value || 'new')}
-                  className="h-11 rounded-md border border-input bg-background px-2 text-sm"
-                  disabled={openTabOptions.length === 0}
-                >
-                  <option value="">{t('tabs.existingTab')}</option>
-                  {openTabOptions.map((tb) => (
-                    <option key={tb.id} value={tb.id}>
-                      {tb.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {tabChoice === 'new' && (
-                <Input
-                  value={newTabLabel}
-                  onChange={(e) => setNewTabLabel(e.target.value)}
-                  placeholder={t('tabs.tabLabelPlaceholder')}
-                  className="h-11"
-                />
-              )}
-            </div>
+            <p className="text-sm text-muted-foreground">
+              {activeCartId ? t('tabs.willAddToActiveCart') : t('tabs.willOpenNewCart')}
+            </p>
           )}
 
           <Button variant="gold" size="xl" className="w-full" disabled={!canSeat} onClick={handleSeatNow}>
@@ -661,7 +652,12 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
       </Card>
       </div>
 
-      <TabsPanel branchId={branchId} refreshKey={tabsRefreshKey} />
+      <CartPanel
+        branchId={branchId}
+        refreshKey={cartsRefreshKey}
+        activeCartId={activeCartId}
+        onActiveCartChange={setActiveCartId}
+      />
     </div>
   );
 }

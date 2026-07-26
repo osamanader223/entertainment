@@ -126,7 +126,7 @@ export interface Database {
           source_payment_id: string | null;
           source_session_id: string | null;
           corrects_invoice_id: string | null;
-          source_tab_id: string | null;
+          source_cart_id: string | null;
         };
         Insert: Partial<Database['public']['Tables']['invoices']['Row']> & {
           tenant_id: string;
@@ -497,7 +497,7 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['cashier_shifts']['Row']>;
         Relationships: [];
       };
-      tabs: {
+      carts: {
         Row: {
           id: string;
           tenant_id: string;
@@ -509,48 +509,55 @@ export interface Database {
           opened_at: string;
           status: 'open' | 'settled' | 'void';
           settled_at: string | null;
+          subtotal_cents: number;
+          discount_cents: number;
           total_cents: number;
         };
-        Insert: Partial<Database['public']['Tables']['tabs']['Row']> & {
+        Insert: Partial<Database['public']['Tables']['carts']['Row']> & {
           tenant_id: string;
           branch_id: string;
           opened_by: string;
         };
-        Update: Partial<Database['public']['Tables']['tabs']['Row']>;
+        Update: Partial<Database['public']['Tables']['carts']['Row']>;
         Relationships: [];
       };
-      tab_items: {
+      cart_items: {
         Row: {
           id: string;
-          tab_id: string;
+          cart_id: string;
           description: string;
           session_id: string | null;
+          quantity: number;
+          unit_price_cents: number;
+          line_discount_cents: number;
           amount_cents: number;
           created_at: string;
         };
-        Insert: Partial<Database['public']['Tables']['tab_items']['Row']> & {
-          tab_id: string;
+        Insert: Partial<Database['public']['Tables']['cart_items']['Row']> & {
+          cart_id: string;
           description: string;
+          unit_price_cents: number;
           amount_cents: number;
         };
-        Update: Partial<Database['public']['Tables']['tab_items']['Row']>;
+        Update: Partial<Database['public']['Tables']['cart_items']['Row']>;
         Relationships: [];
       };
-      tab_payments: {
+      cart_payments: {
         Row: {
           id: string;
-          tab_id: string;
+          cart_id: string;
           method: 'cash' | 'card' | 'wallet';
           amount_cents: number;
+          card_reference: string | null;
           payment_id: string | null;
           created_at: string;
         };
-        Insert: Partial<Database['public']['Tables']['tab_payments']['Row']> & {
-          tab_id: string;
+        Insert: Partial<Database['public']['Tables']['cart_payments']['Row']> & {
+          cart_id: string;
           method: 'cash' | 'card' | 'wallet';
           amount_cents: number;
         };
-        Update: Partial<Database['public']['Tables']['tab_payments']['Row']>;
+        Update: Partial<Database['public']['Tables']['cart_payments']['Row']>;
         Relationships: [];
       };
       queue_tickets: {
@@ -679,7 +686,7 @@ export interface Database {
           p_source_payment_id: string | null;
           p_source_session_id: string | null;
           p_corrects_invoice_id: string | null;
-          p_source_tab_id?: string | null;
+          p_source_cart_id?: string | null;
         };
         Returns: Database['public']['Tables']['invoices']['Row'];
       };

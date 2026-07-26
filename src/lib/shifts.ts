@@ -16,7 +16,7 @@ export interface ShiftMethodTotals {
 
 export interface ShiftSummary extends ShiftMethodTotals {
   sessionCount: number;
-  tabCount: number;
+  cartCount: number;
   totalCollectedCents: number;
 }
 
@@ -179,20 +179,20 @@ export async function getShiftSummary(shiftId: string): Promise<ShiftSummary> {
   const admin = createAdminClient();
   const totals = await sumPaymentsByMethod(shiftId);
 
-  const [{ count: sessionCount }, { count: tabCount }] = await Promise.all([
+  const [{ count: sessionCount }, { count: cartCount }] = await Promise.all([
     admin
       .from('payments')
       .select('id', { count: 'exact', head: true })
       .eq('shift_id', shiftId)
       .eq('status', 'captured')
       .eq('purpose', 'session'),
-    admin.from('tabs').select('id', { count: 'exact', head: true }).eq('shift_id', shiftId),
+    admin.from('carts').select('id', { count: 'exact', head: true }).eq('shift_id', shiftId),
   ]);
 
   return {
     ...totals,
     sessionCount: sessionCount ?? 0,
-    tabCount: tabCount ?? 0,
+    cartCount: cartCount ?? 0,
     totalCollectedCents: totals.cashCents + totals.cardCents + totals.walletCents,
   };
 }
