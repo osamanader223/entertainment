@@ -35,6 +35,8 @@ export interface VenueSettings {
       addressBuildingNo: string | null;
       crNumber: string | null;
     };
+    /** Minutes a booking may be started before its scheduled time. null = unlimited. */
+    earlyStartWindowMinutes: number | null;
   };
 }
 
@@ -56,7 +58,7 @@ export async function getVenueSettings(tenantId: string, branchId: string): Prom
       .single(),
     admin
       .from('branches')
-      .select('display_name, address_line, city, phone, whatsapp_number, opens_at, closes_at, queue_policy, vat_number, legal_name_ar, legal_name_en, address_street, address_district, address_city, address_postal_code, address_building_no, cr_number')
+      .select('display_name, address_line, city, phone, whatsapp_number, opens_at, closes_at, queue_policy, vat_number, legal_name_ar, legal_name_en, address_street, address_district, address_city, address_postal_code, address_building_no, cr_number, early_start_window_minutes')
       .eq('id', branchId)
       .single(),
   ]);
@@ -73,6 +75,7 @@ export async function getVenueSettings(tenantId: string, branchId: string): Prom
     vat_number: string | null; legal_name_ar: string | null; legal_name_en: string | null;
     address_street: string | null; address_district: string | null; address_city: string | null;
     address_postal_code: string | null; address_building_no: string | null; cr_number: string | null;
+    early_start_window_minutes: number | null;
   };
 
   return {
@@ -107,6 +110,7 @@ export async function getVenueSettings(tenantId: string, branchId: string): Prom
         addressBuildingNo: branch.address_building_no,
         crNumber: branch.cr_number,
       },
+      earlyStartWindowMinutes: branch.early_start_window_minutes,
     },
   };
 }
@@ -171,6 +175,8 @@ export interface UpdateBranchSettingsInput {
   addressPostalCode?: string | null;
   addressBuildingNo?: string | null;
   crNumber?: string | null;
+  /** Minutes a booking may be started before its scheduled time. null = unlimited. */
+  earlyStartWindowMinutes?: number | null;
 }
 
 export async function updateBranchSettings(
@@ -197,6 +203,7 @@ export async function updateBranchSettings(
   if (patch.addressPostalCode !== undefined) update.address_postal_code = patch.addressPostalCode;
   if (patch.addressBuildingNo !== undefined) update.address_building_no = patch.addressBuildingNo;
   if (patch.crNumber !== undefined) update.cr_number = patch.crNumber;
+  if (patch.earlyStartWindowMinutes !== undefined) update.early_start_window_minutes = patch.earlyStartWindowMinutes;
 
   if (patch.queuePolicy !== undefined) {
     const { data: currentRaw } = await admin.from('branches').select('queue_policy').eq('id', branchId).single();

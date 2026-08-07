@@ -78,6 +78,11 @@ export function AppNavShell({ items, userName, subtitle, adminBadge, backToAppHr
   const pathname = usePathname();
   const isActive = useIsActive(pathname);
   const avatarLetter = locale === 'ar' ? 'أ' : (userName.trim()[0]?.toUpperCase() ?? '?');
+  // Whatever "home" means for this shell — the dashboard's own Home item is
+  // /dashboard, the admin shell's is /admin — so the logo always matches
+  // wherever the Home nav item already points, with no need for callers to
+  // specify it twice.
+  const homeHref = items.find((i) => i.key === 'home')?.href ?? '/dashboard';
 
   return (
     <div
@@ -87,7 +92,9 @@ export function AppNavShell({ items, userName, subtitle, adminBadge, backToAppHr
       {/* Side nav — desktop only, leading side (right in RTL, left in LTR) */}
       <aside className="hidden xl:flex flex-shrink-0 w-[230px] flex-col gap-1.5 py-6 px-4 border-e border-[#1C1730] bg-black/20">
         <div className="px-2 pb-4 flex items-center gap-2">
-          <Image src="/images/bolos-logo.png" alt="Bolos Alley" width={150} height={40} className="w-[130px] h-auto drop-shadow-[0_0_16px_rgba(47,243,243,0.35)]" priority />
+          <Link href={homeHref} className="shrink-0 cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--neon-cyan)]">
+            <Image src="/images/bolos-logo.png" alt="Bolos Alley" width={150} height={40} className="w-[130px] h-auto drop-shadow-[0_0_16px_rgba(47,243,243,0.35)]" priority />
+          </Link>
           {adminBadge && (
             <span className="text-[10px] font-bold tracking-widest px-1.5 py-0.5 rounded bg-[rgba(47,243,243,.12)] text-[color:var(--neon-cyan)] border border-[rgba(47,243,243,.3)] shrink-0">
               {adminBadge}
@@ -145,7 +152,9 @@ export function AppNavShell({ items, userName, subtitle, adminBadge, backToAppHr
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top nav — tablet only */}
         <div className="hidden md:flex xl:hidden flex-shrink-0 items-center justify-between gap-3 px-7 py-4 border-b border-[#1C1730] bg-black/30 backdrop-blur-sm sticky top-0 z-20">
-          <Image src="/images/bolos-logo.png" alt="Bolos Alley" width={46} height={46} className="h-[40px] w-auto shrink-0 drop-shadow-[0_0_14px_rgba(47,243,243,0.35)]" priority />
+          <Link href={homeHref} className="shrink-0 cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--neon-cyan)]">
+            <Image src="/images/bolos-logo.png" alt="Bolos Alley" width={46} height={46} className="h-[40px] w-auto shrink-0 drop-shadow-[0_0_14px_rgba(47,243,243,0.35)]" priority />
+          </Link>
           <nav className="flex gap-1.5 overflow-x-auto">
             {items.map((item) => {
               const active = isActive(item);
@@ -181,7 +190,9 @@ export function AppNavShell({ items, userName, subtitle, adminBadge, backToAppHr
 
         {/* Phone-only utility strip (language toggle + sign out) — top nav/side nav carry these above md */}
         <div className="md:hidden flex items-center justify-between px-5 py-3">
-          <Image src="/images/bolos-logo.png" alt="Bolos Alley" width={110} height={30} className="h-[28px] w-auto drop-shadow-[0_0_12px_rgba(47,243,243,0.35)]" priority />
+          <Link href={homeHref} className="shrink-0 cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--neon-cyan)]">
+            <Image src="/images/bolos-logo.png" alt="Bolos Alley" width={110} height={30} className="h-[28px] w-auto drop-shadow-[0_0_12px_rgba(47,243,243,0.35)]" priority />
+          </Link>
           <div className="flex items-center gap-1">
             <LanguageToggle />
             <form action="/auth/signout" method="post">

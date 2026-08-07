@@ -6,6 +6,7 @@ import { getReservationBoard } from '@/lib/cashier-reservations';
 import {
   markBookingPresent,
   startScheduledBookingSession,
+  startBookingEarly,
   markBookingNoShow,
   cancelScheduledBooking,
 } from '@/lib/booking';
@@ -48,6 +49,25 @@ export async function startNowAction(input: { bookingId: string }) {
   try {
     const result = await startScheduledBookingSession(parsed.data.bookingId, DEMO_TENANT_ID, ctx.userId, false);
     return { ok: true as const, sessionId: result.sessionId };
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : 'Failed' };
+  }
+}
+
+const startEarlySchema = z.object({ bookingId: z.string().uuid(), force: z.boolean().optional() });
+
+export async function startBookingEarlyAction(input: { bookingId: string; force?: boolean }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = startEarlySchema.safeParse(input);
+  if (!parsed.success) return { ok: false as const, error: 'Invalid input' };
+  try {
+    const result = await startBookingEarly({
+      bookingId: parsed.data.bookingId,
+      tenantId: DEMO_TENANT_ID,
+      actorId: ctx.userId,
+      force: parsed.data.force,
+    });
+    return result;
   } catch (e) {
     return { ok: false as const, error: e instanceof Error ? e.message : 'Failed' };
   }

@@ -79,6 +79,7 @@ const branchSettingsSchema = z.object({
   addressPostalCode: z.string().max(10).optional().nullable(),
   addressBuildingNo: z.string().max(10).optional().nullable(),
   crNumber: z.string().max(20).optional().nullable(),
+  earlyStartWindowMinutes: z.number().int().min(0).max(1440).optional().nullable(),
 });
 
 export async function updateBranchSettingsAction(raw: unknown) {

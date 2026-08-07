@@ -92,6 +92,7 @@ export interface Database {
           address_postal_code: string | null;
           address_building_no: string | null;
           cr_number: string | null;
+          early_start_window_minutes: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -385,6 +386,8 @@ export interface Database {
           no_show_at: string | null;
           auto_started: boolean;
           slot_released: boolean;
+          early_start_collision: boolean;
+          early_start_collision_note: string | null;
           created_at: string;
           updated_at: string;
         };

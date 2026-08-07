@@ -37,6 +37,9 @@ export function SettingsForm({ initialSettings, canEditBranding }: SettingsFormP
   const [notificationWindow, setNotificationWindow] = useState(String(initialSettings.branch.queuePolicy.notification_window_minutes));
   const [maxWait, setMaxWait] = useState(String(initialSettings.branch.queuePolicy.max_wait_minutes));
   const [cancellationCredit, setCancellationCredit] = useState(String(initialSettings.branch.queuePolicy.cancellation_credit_percent));
+  const [earlyStartWindow, setEarlyStartWindow] = useState(
+    initialSettings.branch.earlyStartWindowMinutes !== null ? String(initialSettings.branch.earlyStartWindowMinutes) : '',
+  );
   const [savingBranch, setSavingBranch] = useState(false);
 
   // Tax details (ZATCA)
@@ -80,6 +83,7 @@ export function SettingsForm({ initialSettings, canEditBranding }: SettingsFormP
         max_wait_minutes: Number(maxWait) || 90,
         cancellation_credit_percent: Number(cancellationCredit) || 100,
       },
+      earlyStartWindowMinutes: earlyStartWindow.trim() === '' ? null : Number(earlyStartWindow),
     });
     setSavingBranch(false);
     if (res.ok) toast.success(t('adminSettings.saved'));
@@ -214,6 +218,22 @@ export function SettingsForm({ initialSettings, canEditBranding }: SettingsFormP
                 <Input type="number" min="0" max="100" value={cancellationCredit} onChange={(e) => setCancellationCredit(e.target.value)} className="font-mono" />
               </FieldRow>
             </div>
+          </div>
+
+          <div className="pt-2 border-t border-border/40">
+            <h3 className="text-sm font-semibold text-muted-foreground mb-3 mt-3">{t('adminSettings.earlyStartPolicy')}</h3>
+            <FieldRow label={t('adminSettings.earlyStartWindow')}>
+              <Input
+                type="number"
+                min="0"
+                max="1440"
+                value={earlyStartWindow}
+                onChange={(e) => setEarlyStartWindow(e.target.value)}
+                placeholder={t('adminSettings.earlyStartUnlimited')}
+                className="font-mono"
+              />
+            </FieldRow>
+            <p className="text-xs text-muted-foreground mt-1.5">{t('adminSettings.earlyStartWindowNote')}</p>
           </div>
 
           <Button variant="gold" disabled={savingBranch} onClick={saveBranch}>

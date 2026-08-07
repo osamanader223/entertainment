@@ -719,6 +719,203 @@ export async function startScheduledBookingSession(
   return { sessionId: session.id };
 }
 
+export interface EarlyStartCollisionInfo {
+  bookingId?: string;
+  customerName?: string;
+  /** ISO instant — the conflicting booking's scheduled start, or the running session's start. */
+  time: string;
+}
+
+export interface StartBookingEarlyResult {
+  ok: boolean;
+  needsConfirmation?: 'simple' | 'collision';
+  collisionInfo?: EarlyStartCollisionInfo;
+  newStart?: string;
+  newEnd?: string;
+  sessionId?: string;
+  error?: string;
+}
+
+/**
+ * Find whatever is actually occupying `stationId` during [start, end) other
+ * than the booking being started early — either a different reservation
+ * (checked first, since that's what the collision message names) or a
+ * currently-running session with no future reservation attached to it.
+ * Only ever called after is_station_free_for_window() has already said
+ * "not free" — this just explains *why*, for the collision prompt.
+ */
+async function findEarlyStartConflict(
+  admin: ReturnType<typeof createAdminClient>,
+  stationId: string,
+  startIso: string,
+  endIso: string,
+  excludeBookingId: string,
+): Promise<EarlyStartCollisionInfo | null> {
+  const { data: conflictingBookings } = await admin
+    .from('bookings')
+    .select('id, customer_id, scheduled_start_at')
+    .eq('station_id', stationId)
+    .neq('id', excludeBookingId)
+    .in('status', ['confirmed', 'checked_in', 'in_session'])
+    .lt('scheduled_start_at', endIso)
+    .gt('scheduled_end_at', startIso)
+    .order('scheduled_start_at', { ascending: true })
+    .limit(1);
+
+  if (conflictingBookings && conflictingBookings.length > 0) {
+    const b = conflictingBookings[0];
+    let customerName: string | undefined;
+    if (b.customer_id) {
+      const { data: profile } = await admin.from('profiles').select('full_name').eq('id', b.customer_id).maybeSingle();
+      customerName = profile?.full_name ?? undefined;
+    }
+    return { bookingId: b.id, customerName, time: b.scheduled_start_at };
+  }
+
+  const { data: activeSessions } = await admin
+    .from('sessions')
+    .select('id, customer_id, customer_label, started_at')
+    .eq('station_id', stationId)
+    .in('status', ['active', 'paused'])
+    .limit(1);
+
+  if (activeSessions && activeSessions.length > 0) {
+    const s = activeSessions[0];
+    let customerName = s.customer_label ?? undefined;
+    if (!customerName && s.customer_id) {
+      const { data: profile } = await admin.from('profiles').select('full_name').eq('id', s.customer_id).maybeSingle();
+      customerName = profile?.full_name ?? undefined;
+    }
+    return { customerName, time: s.started_at };
+  }
+
+  return null;
+}
+
+/**
+ * Start a confirmed booking's session before its scheduled time — the whole
+ * window shifts earlier (newStart = now, newEnd = now + the FULL original
+ * booked duration); the session is never shortened.
+ *
+ * Graded confirmation, never silently bypassed:
+ *   - free window            -> needsConfirmation:'simple' until force=true
+ *   - overlaps another
+ *     booking/live session   -> needsConfirmation:'collision' until force=true
+ * `force` only ever comes from the cashier's own explicit second tap on the
+ * matching prompt (plain confirm for 'simple', a deliberate red confirm for
+ * 'collision') — the overlap check itself reruns on every call regardless of
+ * `force`, so nothing here can skip it.
+ *
+ * Once clear (or forced), this delegates the actual session/payment-linking/
+ * points logic entirely to startScheduledBookingSession — early start isn't
+ * a different session-creation path, it's the same one, just called before
+ * the scheduled time after this extra overlap-aware pre-check.
+ */
+export async function startBookingEarly(input: {
+  bookingId: string;
+  tenantId: string;
+  actorId: string;
+  force?: boolean;
+}): Promise<StartBookingEarlyResult> {
+  const { bookingId, tenantId, actorId, force = false } = input;
+  const admin = createAdminClient();
+
+  const { data: booking, error } = await admin
+    .from('bookings')
+    .select('id, branch_id, station_id, scheduled_start_at, duration_minutes, status')
+    .eq('id', bookingId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (error || !booking) return { ok: false, error: 'booking_not_found' };
+  if (booking.status !== 'confirmed' && booking.status !== 'checked_in') return { ok: false, error: 'booking_not_startable' };
+  if (!booking.station_id) return { ok: false, error: 'booking_has_no_station' };
+
+  const now = new Date();
+  const durationMinutes = booking.duration_minutes ?? 60;
+  const newStart = now;
+  const newEnd = new Date(now.getTime() + durationMinutes * 60_000);
+  const scheduledStart = new Date(booking.scheduled_start_at);
+
+  // Venue-configured cap, if any — null means unlimited. Applies even when
+  // force=true; force only overrides the collision warning, never this.
+  const { data: branch } = await admin
+    .from('branches')
+    .select('early_start_window_minutes')
+    .eq('id', booking.branch_id)
+    .maybeSingle();
+  const cap = branch?.early_start_window_minutes ?? null;
+  if (cap !== null && now < scheduledStart) {
+    const earliestAllowed = new Date(scheduledStart.getTime() - cap * 60_000);
+    if (now < earliestAllowed) {
+      return { ok: false, error: 'too_early', newStart: earliestAllowed.toISOString() };
+    }
+  }
+
+  const isFree = await isStationFreeForWindow(booking.station_id, newStart.toISOString(), newEnd.toISOString(), bookingId);
+
+  if (!isFree) {
+    const conflict = await findEarlyStartConflict(admin, booking.station_id, newStart.toISOString(), newEnd.toISOString(), bookingId);
+    if (!force) {
+      return {
+        ok: false,
+        needsConfirmation: 'collision',
+        collisionInfo: conflict ?? { time: newStart.toISOString() },
+        newStart: newStart.toISOString(),
+        newEnd: newEnd.toISOString(),
+      };
+    }
+
+    const result = await startScheduledBookingSession(bookingId, tenantId, actorId, false);
+    await logEarlyStart(admin, tenantId, booking.branch_id, actorId, bookingId, scheduledStart, newStart, newEnd, true);
+    if (conflict?.bookingId) {
+      await admin
+        .from('bookings')
+        .update({
+          early_start_collision: true,
+          early_start_collision_note: `Station may already be occupied — booking ${bookingId} was started early at ${newStart.toISOString()}, overlapping this reservation.`,
+        } as never)
+        .eq('id', conflict.bookingId);
+    }
+    return { ok: true, sessionId: result.sessionId, newStart: newStart.toISOString(), newEnd: newEnd.toISOString() };
+  }
+
+  if (!force) {
+    return { ok: false, needsConfirmation: 'simple', newStart: newStart.toISOString(), newEnd: newEnd.toISOString() };
+  }
+
+  const result = await startScheduledBookingSession(bookingId, tenantId, actorId, false);
+  await logEarlyStart(admin, tenantId, booking.branch_id, actorId, bookingId, scheduledStart, newStart, newEnd, false);
+  return { ok: true, sessionId: result.sessionId, newStart: newStart.toISOString(), newEnd: newEnd.toISOString() };
+}
+
+async function logEarlyStart(
+  admin: ReturnType<typeof createAdminClient>,
+  tenantId: string,
+  branchId: string,
+  actorId: string,
+  bookingId: string,
+  originalStart: Date,
+  newStart: Date,
+  newEnd: Date,
+  collisionOverridden: boolean,
+): Promise<void> {
+  await admin.from('activity_log').insert({
+    tenant_id: tenantId,
+    branch_id: branchId,
+    actor_id: actorId,
+    actor_role: 'staff',
+    action: 'booking.started_early',
+    entity_type: 'booking',
+    entity_id: bookingId,
+    after: {
+      original_start: originalStart.toISOString(),
+      new_start: newStart.toISOString(),
+      new_end: newEnd.toISOString(),
+      collision_overridden: collisionOverridden,
+    },
+  });
+}
+
 /**
  * Mark a booking as no-show — not present by (scheduled_start_at - 10min).
  * Forfeits the payment (no refund) and releases the slot: since
