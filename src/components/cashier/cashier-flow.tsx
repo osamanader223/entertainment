@@ -13,6 +13,7 @@ import { ShiftBar, type OpenShiftState } from './shift-bar';
 import { CartPanel } from './cart-panel';
 import { InvoiceHistoryPanel } from './invoice-history-panel';
 import { RunningSessionsPanel } from './running-sessions-panel';
+import { ReadyToStartPanel } from './ready-to-start-panel';
 import { InvoiceSidePanel } from './invoice-side-panel';
 import type { PublicVenueState, PublicStation } from '@/lib/venue';
 import { useLiveVenueState } from '@/hooks/useLiveVenueState';
@@ -574,6 +575,9 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
             </CardContent>
           </Card>
 
+          {/* Paid games waiting for their timer to start. */}
+          <ReadyToStartPanel branchId={branchId} refreshKey={cartsRefreshKey} />
+
           {/* Running sessions, end right from this screen. */}
           <RunningSessionsPanel branchId={branchId} refreshSignal={liveState?.fetched_at ?? ''} />
 
@@ -585,6 +589,8 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
               setSidePanelInvoiceId(invoiceId);
               setActiveCartId(null);
               handleChangeCustomer();
+              // Newly-paid sessions are ready to start now — refresh the panel right away.
+              setCartsRefreshKey((k) => k + 1);
             }}
             onVoided={() => setActiveCartId(null)}
           />

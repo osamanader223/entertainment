@@ -773,7 +773,7 @@ export interface Database {
       station_status: 'available' | 'occupied' | 'reserved' | 'maintenance' | 'cleaning';
       pricing_unit: 'per_minute' | 'per_hour' | 'per_session' | 'per_player_hour';
       duration_mode: 'open' | 'fixed_30' | 'fixed_60' | 'custom';
-      session_status: 'active' | 'paused' | 'extended' | 'ended' | 'frozen';
+      session_status: 'pending' | 'active' | 'paused' | 'extended' | 'ended' | 'frozen';
       queue_ticket_status: 'waiting' | 'called' | 'seated' | 'expired' | 'cancelled';
       payment_provider: 'moyasar' | 'hyperpay' | 'cash' | 'manual';
       payment_method: 'mada' | 'visa' | 'mastercard' | 'apple_pay' | 'stc_pay' | 'cash' | 'wallet' | 'card';

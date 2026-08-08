@@ -123,13 +123,32 @@ export async function addSessionToCart(
   await recomputeCartTotals(cartId);
 }
 
+/**
+ * A cart line's session is only ever 'pending' (added, paid or not, but
+ * never started — see startPendingSession in sessions.ts) while its cart is
+ * still open. If that line is removed or the whole cart is voided before
+ * settlement, the session must be ended too — otherwise it would sit
+ * 'pending' forever, holding its station 'reserved' with no cart left to
+ * ever settle it and no way to reach it from either the running-sessions or
+ * ready-to-start panels. Ending it (rather than leaving a new state) reuses
+ * the exact same station-freeing trigger 'ended' already fires.
+ */
+async function endPendingSessionsByIds(admin: ReturnType<typeof createAdminClient>, sessionIds: string[]): Promise<void> {
+  if (sessionIds.length === 0) return;
+  await admin
+    .from('sessions')
+    .update({ status: 'ended', ended_at: new Date().toISOString(), actual_duration_seconds: 0, actual_duration_minutes: 0 } as never)
+    .in('id', sessionIds)
+    .eq('status', 'pending');
+}
+
 /** Removes a line item while the cart is still open, then recomputes totals. */
 export async function removeCartItem(cartItemId: string, actorId: string): Promise<void> {
   const admin = createAdminClient();
 
   const { data: item, error } = await admin
     .from('cart_items')
-    .select('id, cart_id, description, amount_cents')
+    .select('id, cart_id, description, amount_cents, session_id')
     .eq('id', cartItemId)
     .maybeSingle();
   if (error || !item) throw error ?? new Error('Cart item not found');
@@ -140,6 +159,8 @@ export async function removeCartItem(cartItemId: string, actorId: string): Promi
 
   const { error: deleteError } = await admin.from('cart_items').delete().eq('id', cartItemId);
   if (deleteError) throw deleteError;
+
+  if (item.session_id) await endPendingSessionsByIds(admin, [item.session_id]);
 
   await recomputeCartTotals(item.cart_id);
 
@@ -441,6 +462,10 @@ export async function voidCart(cartId: string, reason: string, actorId: string):
 
   const { error: updateError } = await admin.from('carts').update({ status: 'void' } as never).eq('id', cartId);
   if (updateError) throw updateError;
+
+  const { data: itemsWithSessions } = await admin.from('cart_items').select('session_id').eq('cart_id', cartId).not('session_id', 'is', null);
+  const sessionIds = (itemsWithSessions ?? []).map((i) => i.session_id).filter((id): id is string => !!id);
+  await endPendingSessionsByIds(admin, sessionIds);
 
   await admin.from('activity_log').insert({
     tenant_id: cart.tenant_id,

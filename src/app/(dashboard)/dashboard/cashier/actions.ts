@@ -14,7 +14,7 @@ import {
   startCashierSession,
 } from '@/lib/cashier';
 import { ensureShiftOpenForToday, closeStoreDayShift, getShiftSummary } from '@/lib/shifts';
-import { endActiveSessionForStation, getActiveSessionsForBranch } from '@/lib/sessions';
+import { endActiveSessionForStation, getActiveSessionsForBranch, getPendingSessionsForBranch, startPendingSession } from '@/lib/sessions';
 import {
   openCart,
   getOpenCarts,
@@ -278,6 +278,41 @@ export async function getActiveSessionsAction(input: { branchId: string }) {
     return { sessions };
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Failed to load active sessions' };
+  }
+}
+
+export async function getPendingSessionsAction(input: { branchId: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  try {
+    const sessions = await getPendingSessionsForBranch(DEMO_TENANT_ID, input.branchId);
+    return { sessions };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to load ready-to-start sessions' };
+  }
+}
+
+const startPendingSessionSchema = z.object({ sessionId: z.string().uuid() });
+
+/** Staff-only: the ONLY way a session's timer/lights actually start (requireRole enforces this server-side, not just a hidden UI button). */
+export async function startPendingSessionAction(input: { sessionId: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = startPendingSessionSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+
+  try {
+    const admin = createAdminClient();
+    const { data: session } = await admin.from('sessions').select('branch_id').eq('id', parsed.data.sessionId).maybeSingle();
+    if (!session) return { error: 'Session not found' };
+
+    const result = await startPendingSession({
+      sessionId: parsed.data.sessionId,
+      tenantId: DEMO_TENANT_ID,
+      branchId: session.branch_id,
+      actorId: ctx.userId,
+    });
+    return { result };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to start session' };
   }
 }
 

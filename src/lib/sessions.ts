@@ -2,6 +2,7 @@ import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { runLightSequence } from '@/lib/ifttt';
 import { fireNotification } from '@/lib/notifications';
+import { fireStartLightSequence } from '@/lib/cashier';
 
 export interface EndActiveSessionResult {
   sessionId: string | null;
@@ -63,6 +64,150 @@ export async function getActiveSessionsForBranch(tenantId: string, branchId: str
       status: s.status as 'active' | 'paused',
     };
   });
+}
+
+export interface PendingSessionRow {
+  sessionId: string;
+  stationId: string;
+  stationCode: string;
+  stationDisplayName: string;
+  customerName: string | null;
+  gameTypeName: string;
+  addedAt: string;
+}
+
+/**
+ * Sessions added to a basket and PAID (their cart is settled) but not yet
+ * started — no timer, no lights, station held as 'reserved'. Excludes
+ * sessions still sitting in an open/unpaid cart: those aren't "ready to
+ * start" yet, they're still being shopped. Joined through cart_items ->
+ * carts the same manual-join way the rest of carts.ts/invoices.ts does,
+ * since sessions has no direct cart_id column.
+ */
+export async function getPendingSessionsForBranch(tenantId: string, branchId: string): Promise<PendingSessionRow[]> {
+  const admin = createAdminClient();
+  const { data: sessionsRaw, error } = await admin
+    .from('sessions')
+    .select('id, station_id, customer_id, customer_label, created_at')
+    .eq('tenant_id', tenantId)
+    .eq('branch_id', branchId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  const sessions = sessionsRaw ?? [];
+  if (sessions.length === 0) return [];
+
+  const sessionIds = sessions.map((s) => s.id);
+  const { data: cartItemsRaw } = await admin.from('cart_items').select('session_id, cart_id').in('session_id', sessionIds);
+  const cartIdBySession = new Map((cartItemsRaw ?? []).map((ci) => [ci.session_id, ci.cart_id]));
+
+  const cartIds = [...new Set([...cartIdBySession.values()].filter((id): id is string => !!id))];
+  const { data: settledCartsRaw } = cartIds.length
+    ? await admin.from('carts').select('id').in('id', cartIds).eq('status', 'settled')
+    : { data: [] as Array<{ id: string }> };
+  const settledCartIds = new Set((settledCartsRaw ?? []).map((c) => c.id));
+
+  const paidSessions = sessions.filter((s) => {
+    const cartId = cartIdBySession.get(s.id);
+    return !!cartId && settledCartIds.has(cartId);
+  });
+  if (paidSessions.length === 0) return [];
+
+  const stationIds = [...new Set(paidSessions.map((s) => s.station_id))];
+  const customerIds = [...new Set(paidSessions.map((s) => s.customer_id).filter((id): id is string => !!id))];
+
+  const [{ data: stationsRaw }, { data: profilesRaw }] = await Promise.all([
+    admin.from('stations').select('id, code, display_name, game_type_id').in('id', stationIds),
+    customerIds.length
+      ? admin.from('profiles').select('id, full_name').in('id', customerIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; full_name: string | null }> }),
+  ]);
+  const stationMap = new Map((stationsRaw ?? []).map((s) => [s.id, s]));
+  const profileMap = new Map((profilesRaw ?? []).map((p) => [p.id, p.full_name]));
+
+  const gameTypeIds = [...new Set((stationsRaw ?? []).map((s) => s.game_type_id))];
+  const { data: gameTypesRaw } = gameTypeIds.length
+    ? await admin.from('game_types').select('id, display_name_en').in('id', gameTypeIds)
+    : { data: [] as Array<{ id: string; display_name_en: string }> };
+  const gameTypeMap = new Map((gameTypesRaw ?? []).map((g) => [g.id, g.display_name_en]));
+
+  return paidSessions.map((s) => {
+    const station = stationMap.get(s.station_id);
+    return {
+      sessionId: s.id,
+      stationId: s.station_id,
+      stationCode: station?.code ?? '—',
+      stationDisplayName: station?.display_name ?? '—',
+      customerName: (s.customer_id ? profileMap.get(s.customer_id) : null) ?? s.customer_label ?? null,
+      gameTypeName: station ? (gameTypeMap.get(station.game_type_id) ?? '—') : '—',
+      addedAt: s.created_at,
+    };
+  });
+}
+
+/**
+ * The ONLY place the clock actually starts. Moves a paid, not-yet-started
+ * session from 'pending' to 'active' — recomputing started_at/ends_at from
+ * THIS moment (the trigger that auto-computes ends_at only runs on INSERT,
+ * so it never saw the real start time; we set both explicitly here). Purely
+ * operational: payment/invoice/points already happened at settlement, this
+ * touches none of that.
+ */
+export async function startPendingSession({
+  sessionId,
+  tenantId,
+  branchId,
+  actorId,
+}: {
+  sessionId: string;
+  tenantId: string;
+  branchId: string;
+  actorId: string;
+}): Promise<{ ok: boolean }> {
+  const admin = createAdminClient();
+
+  const { data: session, error } = await admin
+    .from('sessions')
+    .select('id, station_id, status, planned_duration_seconds')
+    .eq('id', sessionId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (error || !session) throw error ?? new Error('Session not found');
+  if (session.status !== 'pending') throw new Error('session_not_pending');
+
+  const startedAt = new Date();
+  const endsAt = session.planned_duration_seconds
+    ? new Date(startedAt.getTime() + session.planned_duration_seconds * 1000)
+    : null;
+
+  const { error: updateError } = await admin
+    .from('sessions')
+    .update({
+      status: 'active',
+      started_at: startedAt.toISOString(),
+      ends_at: endsAt ? endsAt.toISOString() : null,
+    } as never)
+    .eq('id', sessionId);
+  if (updateError) throw updateError;
+
+  const { data: station } = await admin.from('stations').select('code, game_type_id').eq('id', session.station_id).maybeSingle();
+
+  await admin.from('activity_log').insert({
+    tenant_id: tenantId,
+    branch_id: branchId,
+    actor_id: actorId,
+    actor_role: 'staff',
+    action: 'session.started',
+    entity_type: 'session',
+    entity_id: sessionId,
+    after: { started_at: startedAt.toISOString(), ends_at: endsAt?.toISOString() ?? null },
+  });
+
+  if (station) {
+    void fireStartLightSequence(station.code, station.game_type_id, branchId);
+  }
+
+  return { ok: true };
 }
 
 /**

@@ -277,6 +277,12 @@ export async function startCashierSession({
     .maybeSingle();
   const isRealCustomer = !!profile && !profile.walk_in_created;
 
+  // Inserted 'pending', not 'active' — this is only adding the game to the
+  // basket/charging for it, NOT starting the session. The timer/lights only
+  // start later, when startPendingSession() runs (the cashier's explicit
+  // "Start" tap on the ready-to-start panel). The sync_station_status
+  // trigger marks the station 'reserved' (held, not yet in use) on this
+  // insert, so it still can't be double-sold while pending.
   const { data: session, error: sessionError } = await admin
     .from('sessions')
     .insert({
@@ -287,7 +293,7 @@ export async function startCashierSession({
       customer_label: customerLabel,
       duration_mode: 'custom',
       planned_duration_seconds: durationMinutes * 60,
-      status: 'active',
+      status: 'pending',
       player_count: playerCount ?? 1,
       game_count: gameCount ?? null,
       predicted_duration_minutes: predictedDurationMinutes ?? null,
@@ -302,13 +308,11 @@ export async function startCashierSession({
     branch_id: branchId,
     actor_id: actorId,
     actor_role: 'staff',
-    action: 'session.started_by_cashier',
+    action: 'session.added_to_basket',
     entity_type: 'session',
     entity_id: session.id,
     after: { station_id: stationId, customer_id: customerId, amount_cents: amountCents, cart_id: cartId ?? null },
   });
-
-  void fireStartLightSequence(station.code, station.game_type_id, branchId);
 
   // Cart mode: defer payment to settlement. No wallet debit, no payments row,
   // no invoice, no points — all of that happens once, for the whole cart
@@ -387,8 +391,13 @@ export async function startCashierSession({
   return { sessionId: session.id, paymentId: payment.id, amountCents };
 }
 
-/** Fire-and-forget: runs the START smart-light sequence for a station, if the branch has IFTTT configured. */
-async function fireStartLightSequence(
+/**
+ * Fire-and-forget: runs the START smart-light sequence for a station, if the
+ * branch has IFTTT configured. Exported for reuse by
+ * sessions.ts:startPendingSession, since lights should only turn on when a
+ * session actually starts (Start tapped), not when it's added to the basket.
+ */
+export async function fireStartLightSequence(
   stationCode: string,
   gameTypeId: string,
   branchId: string

@@ -265,6 +265,10 @@ export const dictionaries = {
       addAnotherGame: 'Add another game',
       addedToBasket: '{station} added to the basket',
       cancelBasket: 'Cancel basket',
+      readyToStart: 'Ready to start',
+      start: 'Start',
+      startSession: 'Session started',
+      waitingSince: 'waiting {n} min',
     },
     shifts: {
       openShift: 'Open shift',
@@ -1246,6 +1250,10 @@ export const dictionaries = {
       addAnotherGame: 'إضافة لعبة أخرى',
       addedToBasket: 'تمت إضافة {station} إلى السلة',
       cancelBasket: 'إلغاء السلة',
+      readyToStart: 'جاهز للبدء',
+      start: 'ابدأ',
+      startSession: 'بدأت الجلسة',
+      waitingSince: 'ينتظر منذ {n} دقيقة',
     },
     shifts: {
       openShift: 'فتح وردية',
