@@ -5,16 +5,14 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Receipt, X, Trash2, Plus, Minus, Percent, Printer, Search, Check } from 'lucide-react';
+import { Loader2, Receipt, X, Trash2, Plus, Minus, Percent, Printer, Search, Check, ShoppingBasket } from 'lucide-react';
 import { formatMoney, normalizePhone } from '@/lib/utils';
 import { useT } from '@/i18n/context';
 import {
-  getOpenCartsAction,
   getCartAction,
   removeCartItemAction,
   voidCartAction,
   settleCartAction,
-  openCartAction,
   getCustomerWalletBalanceAction,
   lookupWalletPayerAction,
   updateCartItemQuantityAction,
@@ -32,23 +30,14 @@ interface ActiveCartItem {
   amountCents: number;
 }
 
-export interface OpenCartSummary {
-  id: string;
-  label: string | null;
-  customerId: string | null;
-  customerName: string | null;
-  openedAt: string;
-  itemCount: number;
-  totalCents: number;
-}
-
 interface CartPanelProps {
-  branchId: string;
-  refreshKey: number;
+  /** The customer's current basket, opened by cashier-flow.tsx when the first game is added. */
   activeCartId: string | null;
-  onActiveCartChange: (cartId: string | null) => void;
+  refreshKey: number;
   /** Called with the newly-issued invoice id right after a successful settle, so the invoice can show in the side panel instead of a new tab. */
   onSettled?: (invoiceId: string) => void;
+  /** The basket was cancelled — the parent should clear its activeCartId. */
+  onVoided?: () => void;
 }
 
 const QUICK_CASH_AMOUNTS = [5000, 10000, 20000, 50000]; // 50 / 100 / 200 / 500 SAR, in halalas
@@ -63,7 +52,7 @@ interface SettleLine {
   method: 'cash' | 'card' | 'wallet';
   amount: string;
   cardReference: string;
-  /** wallet only — "pay from another wallet" sub-flow. null payer = the cart's own seated customer pays. */
+  /** wallet only — "pay from another wallet" sub-flow. null payer = the basket's own customer pays. */
   showPayerLookup: boolean;
   payerPhone: string;
   payerLookupPending: boolean;
@@ -84,10 +73,14 @@ const EMPTY_SETTLE_LINE: SettleLine = {
   payerConfirmed: false,
 };
 
-export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChange, onSettled }: CartPanelProps) {
+/**
+ * The customer's current basket — one game/line at a time, settled once.
+ * Deliberately just ONE basket at a time (no multi-tab list): cashier-flow.tsx
+ * owns creating/clearing `activeCartId`, this component only displays and
+ * settles whatever cart id it's handed.
+ */
+export function CartPanel({ activeCartId, refreshKey, onSettled, onVoided }: CartPanelProps) {
   const { t } = useT();
-  const [carts, setCarts] = useState<OpenCartSummary[]>([]);
-  const [loading, startLoading] = useTransition();
   const [activeItems, setActiveItems] = useState<ActiveCartItem[]>([]);
   const [activeSubtotalCents, setActiveSubtotalCents] = useState(0);
   const [activeDiscountCents, setActiveDiscountCents] = useState(0);
@@ -106,22 +99,6 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
   const [lines, setLines] = useState<SettleLine[]>([{ ...EMPTY_SETTLE_LINE }]);
   const [settlePending, startSettle] = useTransition();
   const [settleResult, setSettleResult] = useState<{ changeCents: number; invoiceId?: string } | null>(null);
-
-  const refresh = () => {
-    startLoading(async () => {
-      const res = await getOpenCartsAction({ branchId });
-      if (res.error) {
-        toast.error(res.error);
-        return;
-      }
-      setCarts(res.carts ?? []);
-    });
-  };
-
-  useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId, refreshKey]);
 
   const loadActiveCartItems = (cartId: string | null) => {
     if (!cartId) {
@@ -158,31 +135,6 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCartId, refreshKey]);
 
-  const handleNewCart = () => {
-    startLoading(async () => {
-      const res = await openCartAction({ branchId });
-      if (res.error || !res.result) {
-        toast.error(res.error === 'no_open_shift' ? t('shifts.mustOpenShiftFirst') : (res.error ?? t('tabs.failedToOpen')));
-        return;
-      }
-      onActiveCartChange(res.result.cartId);
-      refresh();
-    });
-  };
-
-  // Alt+N — Daftra-style shortcut for a new cart.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.altKey && (e.key === 'n' || e.key === 'N')) {
-        e.preventDefault();
-        handleNewCart();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId]);
-
   const handleRemoveItem = (cartItemId: string) => {
     startItems(async () => {
       const res = await removeCartItemAction({ cartItemId });
@@ -191,7 +143,6 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
         return;
       }
       loadActiveCartItems(activeCartId);
-      refresh();
     });
   };
 
@@ -204,7 +155,6 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
         return;
       }
       loadActiveCartItems(activeCartId);
-      refresh();
     });
   };
 
@@ -221,7 +171,6 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
       toast.success(t('pos.discountApplied'));
       setDiscountValue('');
       loadActiveCartItems(activeCartId);
-      refresh();
     });
   };
 
@@ -235,7 +184,6 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
       }
       toast.success(t('pos.discountCleared'));
       loadActiveCartItems(activeCartId);
-      refresh();
     });
   };
 
@@ -251,11 +199,12 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
       setLineDiscountFor(null);
       setLineDiscountValue('');
       loadActiveCartItems(activeCartId);
-      refresh();
     });
   };
 
-  const openSettle = (cartId: string) => {
+  const openSettle = () => {
+    if (!activeCartId) return;
+    const cartId = activeCartId;
     startSettle(async () => {
       const res = await getCartAction({ cartId });
       if (res.error || !res.cart) {
@@ -361,8 +310,6 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
         return;
       }
       setSettleResult({ changeCents: res.result.changeCents, invoiceId: res.result.invoiceId });
-      if (activeCartId === settleCartId) onActiveCartChange(null);
-      refresh();
       // Shows in the invoice side panel on this same screen instead of
       // opening a new browser tab — the cashier can still print manually
       // via the button below (or the side panel's own reprint button).
@@ -370,74 +317,35 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
     });
   };
 
-  const handleVoid = (cartId: string) => {
+  const handleVoidBasket = () => {
+    if (!activeCartId) return;
     startSettle(async () => {
-      const res = await voidCartAction({ cartId, reason: 'Cancelled at cashier' });
+      const res = await voidCartAction({ cartId: activeCartId, reason: 'Cancelled at cashier' });
       if (res.error) {
         toast.error(res.error);
         return;
       }
       toast.success(t('tabs.tabVoided'));
-      if (activeCartId === cartId) onActiveCartChange(null);
-      refresh();
+      onVoided?.();
     });
   };
 
   return (
     <>
       <Card>
-        <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-          <CardTitle className="text-lg">{t('tabs.openTabs')}</CardTitle>
-          <Button variant="outline" size="sm" onClick={handleNewCart} title="Alt+N">
-            <Plus className="h-3.5 w-3.5" />
-            {t('tabs.newTab')}
-          </Button>
+        <CardHeader className="flex-row items-center gap-2 space-y-0">
+          <ShoppingBasket className="h-4 w-4 text-gold-400" />
+          <CardTitle className="text-lg">{t('cashier.basket')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {loading && carts.length === 0 ? (
-            <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
-          ) : carts.length === 0 ? (
-            <div className="text-sm text-muted-foreground">{t('tabs.noOpenTabs')}</div>
+          {!activeCartId ? (
+            <div className="text-sm text-muted-foreground text-center py-6">{t('cashier.basketEmpty')}</div>
           ) : (
-            carts.map((cart) => (
-              <div
-                key={cart.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => onActiveCartChange(cart.id)}
-                className={`flex items-center justify-between gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
-                  activeCartId === cart.id ? 'border-gold-500/60 bg-gold-500/5' : 'border-border/60 hover:border-border'
-                }`}
-              >
-                <div>
-                  <div className="font-medium">{cart.customerName || cart.label || t('tabs.unlabeledTab')}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {cart.itemCount} {t('tabs.items')} ·{' '}
-                    <span className="font-mono tabular-nums" style={{ fontFamily: 'var(--font-orbitron, inherit)' }}>
-                      {formatMoney(cart.totalCents)}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                  <Button variant="ghost" size="sm" onClick={() => handleVoid(cart.id)} title={t('tabs.voidTab')}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="gold" size="sm" onClick={() => openSettle(cart.id)}>
-                    <Receipt className="h-3.5 w-3.5" />
-                    {t('tabs.settle')}
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-
-          {activeCartId && (
-            <div className="rounded-lg border border-gold-500/30 bg-gold-500/5 p-3 space-y-2">
-              <div className="text-xs font-medium text-gold-400">{t('tabs.activeCart')}</div>
+            <div className="space-y-2">
               {itemsPending ? (
                 <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
               ) : activeItems.length === 0 ? (
-                <div className="text-sm text-muted-foreground">{t('tabs.noOpenTabs')}</div>
+                <div className="text-sm text-muted-foreground">{t('cashier.basketEmpty')}</div>
               ) : (
                 <div className="space-y-2">
                   {activeItems.map((item) => (
@@ -548,6 +456,17 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
                         {t('pos.clearDiscount')}
                       </Button>
                     )}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={handleVoidBasket} title={t('cashier.cancelBasket')}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                      {t('cashier.cancelBasket')}
+                    </Button>
+                    <Button variant="gold" size="lg" className="flex-1" onClick={openSettle}>
+                      <Receipt className="h-4 w-4" />
+                      {t('tabs.settle')}
+                    </Button>
                   </div>
                 </div>
               )}

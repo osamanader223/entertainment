@@ -17,16 +17,26 @@ export interface CashierCustomer {
 /**
  * Look up a customer profile by phone number.
  * Returns null if no profile exists for the normalized number.
+ *
+ * Matches BOTH the canonical `+`-prefixed E.164 form (what normalizePhone()
+ * always produces) and the bare-digit form — because Supabase Auth stores
+ * `auth.users.phone` without the leading `+`, and the handle_new_user
+ * trigger copies that bare value straight into profiles.phone for any
+ * account created via admin.auth.admin.createUser({ phone }) (i.e. every
+ * walk-in — see createWalkInCustomer below). Without this, a returning
+ * walk-in's phone would never match on lookup, even though the profile
+ * exists.
  */
 export async function lookupCustomerByPhone(phone: string): Promise<CashierCustomer | null> {
   const normalized = normalizePhone(phone, 'SA');
   if (!normalized) return null;
+  const bareDigits = normalized.replace(/^\+/, '');
 
   const admin = createAdminClient();
   const { data, error } = await admin
     .from('profiles')
     .select('id, full_name, phone')
-    .eq('phone', normalized)
+    .or(`phone.eq.${normalized},phone.eq.${bareDigits}`)
     .limit(1)
     .maybeSingle();
 
@@ -40,7 +50,13 @@ export async function lookupCustomerByPhone(phone: string): Promise<CashierCusto
  * profiles row. This is a REAL account, not a second-class "walk-in": the
  * phone becomes their login, and it earns loyalty points like any other
  * customer (no walk_in_created flag is set). If the phone is already
- * registered, falls back to returning the existing customer.
+ * registered, falls back to LOADING the existing customer — never inserts
+ * a duplicate.
+ *
+ * Always writes profiles.phone back in the canonical `+`-prefixed form
+ * (see lookupCustomerByPhone's comment for why) — this self-heals any
+ * legacy bare-digit row the moment it's touched again, and guarantees new
+ * rows are never written in the wrong format.
  */
 export async function createWalkInCustomer({
   phone,
@@ -61,7 +77,12 @@ export async function createWalkInCustomer({
 
   if (error || !data.user) {
     const existing = await lookupCustomerByPhone(normalized);
-    if (existing) return { id: existing.id };
+    if (existing) {
+      if (existing.phone !== normalized) {
+        await admin.from('profiles').update({ phone: normalized } as never).eq('id', existing.id);
+      }
+      return { id: existing.id };
+    }
     throw error ?? new Error('Failed to create walk-in customer');
   }
 
@@ -69,7 +90,7 @@ export async function createWalkInCustomer({
 
   await admin
     .from('profiles')
-    .update({ full_name: fullName })
+    .update({ full_name: fullName, phone: normalized })
     .eq('id', userId);
 
   return { id: userId };

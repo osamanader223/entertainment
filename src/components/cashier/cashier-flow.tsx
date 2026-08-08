@@ -11,14 +11,13 @@ import { GameTypePicker } from './game-type-picker';
 import { StationPicker } from './station-picker';
 import { ShiftBar, type OpenShiftState } from './shift-bar';
 import { CartPanel } from './cart-panel';
-import { CustomerSearchBar } from './customer-search-bar';
 import { InvoiceHistoryPanel } from './invoice-history-panel';
 import { RunningSessionsPanel } from './running-sessions-panel';
 import { InvoiceSidePanel } from './invoice-side-panel';
 import type { PublicVenueState, PublicStation } from '@/lib/venue';
 import { useLiveVenueState } from '@/hooks/useLiveVenueState';
 import { cn, formatMoney, normalizePhone } from '@/lib/utils';
-import { Loader2, Pencil, Banknote, Wallet, CheckCircle2, Radio, Receipt, History, Printer } from 'lucide-react';
+import { Loader2, Pencil, CheckCircle2, Radio, History, Printer } from 'lucide-react';
 import {
   lookupCustomerAction,
   createWalkInCustomerAction,
@@ -54,7 +53,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
   const { state: liveState, isStale } = useLiveVenueState(branchCode, initial);
   const stations = liveState?.stations ?? [];
 
-  // --- Persistent top bar: customer identity (Part 1 — phone-first, no anonymous walk-ins) ---
+  // --- Persistent top bar: customer identity — the ONLY phone lookup/create surface. ---
   const [phone, setPhone] = useState('');
   const [customer, setCustomer] = useState<SelectedCustomer | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -78,16 +77,13 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
 
   const isBowling = selectedGameTypeCode?.toLowerCase().includes('bowl') ?? false;
 
-  // --- Payment (seat now) ---
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | null>(null);
   const [seatPending, startSeat] = useTransition();
 
-  // --- Shift (store-day, auto-ensured) + carts + invoice side panel ---
+  // --- Shift (store-day, auto-ensured) + basket (single cart) + invoice side panel ---
   // undefined = still loading; null = today's store-day is already closed.
   const [shift, setShift] = useState<OpenShiftState | null | undefined>(undefined);
   const [cartsRefreshKey, setCartsRefreshKey] = useState(0);
   const [activeCartId, setActiveCartId] = useState<string | null>(null);
-  const [seatMode, setSeatMode] = useState<'pay_now' | 'tab'>('pay_now');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sidePanelInvoiceId, setSidePanelInvoiceId] = useState<string | null>(null);
   const [reprintPending, startReprint] = useTransition();
@@ -233,7 +229,8 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
     setShowCreateForm(false);
     setNewCustomerName('');
     setWalletBalance(null);
-    setPaymentMethod(null);
+    // Switching customers always starts a fresh basket.
+    setActiveCartId(null);
   };
 
   const handleSelectGameType = (code: string) => {
@@ -248,35 +245,29 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
     setEstimatedPrice(null);
   };
 
-  const walletInsufficient =
-    seatMode === 'pay_now' &&
-    paymentMethod === 'wallet' &&
-    walletBalance !== null &&
-    estimatedPrice !== null &&
-    walletBalance < estimatedPrice;
+  const resetGameSelection = () => {
+    setSelectedGameTypeCode(null);
+    setSelectedStation(null);
+    setDuration(null);
+    setShowCustomDuration(false);
+    setCustomDuration('');
+    setPlayerCount(2);
+    setGameCount(1);
+    setBowlingDurationMinutes(null);
+    setEstimatedPrice(null);
+  };
 
-  const canSeat =
-    !!customer &&
-    !!selectedStation &&
-    !!resolvedDuration &&
-    !!shift &&
-    (seatMode === 'tab' || !!paymentMethod) &&
-    estimatedPrice !== null &&
-    !walletInsufficient &&
-    !seatPending;
+  const canAddToBasket =
+    !!customer && !!selectedStation && !!resolvedDuration && !!shift && estimatedPrice !== null && !seatPending;
 
-  const handleSeatNow = () => {
+  const handleAddToBasket = () => {
     if (!customer || !selectedStation || !resolvedDuration || !shift || estimatedPrice === null) {
       return;
     }
-    if (seatMode === 'pay_now' && !paymentMethod) return;
 
     startSeat(async () => {
       let cartId: string | undefined = activeCartId ?? undefined;
-      if (seatMode === 'tab' && !cartId) {
-        // No active cart selected — open one for this customer so "add to
-        // tab" always has somewhere to land (mirrors clicking "New tab" /
-        // Alt+N in the cart panel first).
+      if (!cartId) {
         const cartRes = await openCartAction({
           branchId,
           customerId: customer.id,
@@ -298,8 +289,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
         durationMinutes: isBowling ? undefined : (effectiveDuration ?? undefined),
         playerCount: isBowling ? playerCount : undefined,
         gameCount: isBowling ? gameCount : undefined,
-        paymentMethod: seatMode === 'pay_now' ? (paymentMethod ?? undefined) : undefined,
-        cartId: seatMode === 'tab' ? cartId : undefined,
+        cartId,
       });
       if (res.error) {
         // 'station_reserved' means an upcoming reservation on this station
@@ -316,21 +306,13 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
         return;
       }
 
-      toast.success(t('cashier.sessionStarted', { station: selectedStation.display_name }), {
+      toast.success(t('cashier.addedToBasket', { station: selectedStation.display_name }), {
         icon: <CheckCircle2 className="h-4 w-4" />,
       });
 
-      handleChangeCustomer();
-      setSelectedGameTypeCode(null);
-      setSelectedStation(null);
-      setDuration(null);
-      setShowCustomDuration(false);
-      setCustomDuration('');
-      setPlayerCount(2);
-      setGameCount(1);
-      setBowlingDurationMinutes(null);
-      setEstimatedPrice(null);
-      setSeatMode('pay_now');
+      // Only the game/station/duration selection resets — the customer and
+      // basket stay put so the cashier can immediately add another game.
+      resetGameSelection();
       setCartsRefreshKey((k) => k + 1);
     });
   };
@@ -339,7 +321,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
     <div className="space-y-4">
       <ShiftBar branchId={branchId} shift={shift} onShiftClosed={() => loadShift()} />
 
-      {/* Persistent phone-first identity bar (Part 1) — always at the top, drives who the game/table picker seats. */}
+      {/* Persistent phone-first identity bar — the only way to find/create a customer. */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">{t('cashier.step1')}</CardTitle>
@@ -429,14 +411,8 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
         </CardContent>
       </Card>
 
-      {/* Part 7 — link-to-active-cart + invoice history + reprint controls stay present, moved up next to the identity bar. */}
+      {/* Invoice history + reprint controls (Queue/Booking live in the page header above this component). */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex-1 min-w-[240px]">
-          <CustomerSearchBar
-            activeCartId={activeCartId}
-            onLinked={() => setCartsRefreshKey((k) => k + 1)}
-          />
-        </div>
         <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
           <History className="h-3.5 w-3.5" />
           {t('pos.invoiceHistory')}
@@ -457,7 +433,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6 items-start">
         <div className="space-y-6">
-          {/* Part 2 — game/table/params + payment, unified into one panel instead of split cards. */}
+          {/* Game/table/params selection — adding a game always adds it to the current basket. */}
           <Card className={cn(!customer && 'opacity-50 pointer-events-none')}>
             <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-lg">{t('cashier.step2')}</CardTitle>
@@ -589,75 +565,32 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
                 <div className="pt-4 border-t border-border/40 space-y-4">
                   {!shift && <p className="text-xs text-destructive">{t('shifts.mustOpenShiftFirst')}</p>}
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button type="button" variant={seatMode === 'pay_now' ? 'gold' : 'outline'} size="lg" onClick={() => setSeatMode('pay_now')}>
-                      {t('tabs.payNow')}
-                    </Button>
-                    <Button type="button" variant={seatMode === 'tab' ? 'gold' : 'outline'} size="lg" onClick={() => setSeatMode('tab')}>
-                      <Receipt className="h-4 w-4" />
-                      {t('tabs.addToTab')}
-                    </Button>
-                  </div>
-
-                  {seatMode === 'pay_now' ? (
-                    <>
-                      <div className="grid grid-cols-2 gap-3">
-                        <Button
-                          type="button"
-                          variant={paymentMethod === 'cash' ? 'gold' : 'outline'}
-                          size="xl"
-                          className="h-20 flex-col gap-1.5"
-                          onClick={() => setPaymentMethod('cash')}
-                        >
-                          <Banknote className="h-5 w-5" />
-                          {t('cashier.cash')}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={paymentMethod === 'wallet' ? 'gold' : 'outline'}
-                          size="xl"
-                          className="h-20 flex-col gap-1.5"
-                          onClick={() => setPaymentMethod('wallet')}
-                        >
-                          <Wallet className="h-5 w-5" />
-                          <span>{t('cashier.walletLabel')}</span>
-                          {walletBalance !== null && (
-                            <span className="text-xs font-mono opacity-80">{formatMoney(walletBalance)}</span>
-                          )}
-                        </Button>
-                      </div>
-
-                      {walletInsufficient && <p className="text-xs text-destructive">{t('cashier.walletInsufficient')}</p>}
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {activeCartId ? t('tabs.willAddToActiveCart') : t('tabs.willOpenNewCart')}
-                    </p>
-                  )}
-
-                  <Button variant="gold" size="xl" className="w-full" disabled={!canSeat} onClick={handleSeatNow}>
+                  <Button variant="gold" size="xl" className="w-full" disabled={!canAddToBasket} onClick={handleAddToBasket}>
                     {seatPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {seatMode === 'tab' ? t('tabs.seatAndAddToTab') : t('cashier.seatNow')}
+                    {activeCartId ? t('cashier.addAnotherGame') : t('cashier.addToBasket')}
                   </Button>
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Part 3 — running sessions, end right from this screen. */}
+          {/* Running sessions, end right from this screen. */}
           <RunningSessionsPanel branchId={branchId} refreshSignal={liveState?.fetched_at ?? ''} />
 
-          {/* Part 5 — cart / open tabs / split settlement (incl. cross-wallet payer). */}
+          {/* The current basket — add multiple games, settle once (cash/card/wallet split, incl. cross-wallet payer). */}
           <CartPanel
-            branchId={branchId}
-            refreshKey={cartsRefreshKey}
             activeCartId={activeCartId}
-            onActiveCartChange={setActiveCartId}
-            onSettled={(invoiceId) => setSidePanelInvoiceId(invoiceId)}
+            refreshKey={cartsRefreshKey}
+            onSettled={(invoiceId) => {
+              setSidePanelInvoiceId(invoiceId);
+              setActiveCartId(null);
+              handleChangeCustomer();
+            }}
+            onVoided={() => setActiveCartId(null)}
           />
         </div>
 
-        {/* Part 6 — invoice side panel, always visible, never a new tab. */}
+        {/* Invoice side panel, always visible, never a new tab. */}
         <InvoiceSidePanel invoiceId={sidePanelInvoiceId} />
       </div>
     </div>

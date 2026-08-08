@@ -10,7 +10,7 @@ import { Loader2 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { signupSchema, type SignupInput } from '@/lib/validators/auth';
-import { validateSignupAction } from '@/app/(auth)/signup/actions';
+import { validateSignupAction, claimWalkInAccountAction } from '@/app/(auth)/signup/actions';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +39,34 @@ export function SignupForm() {
       // schema, but that alone isn't trusted for the values we actually save.
       const checked = await validateSignupAction(values);
       if (!checked.ok) {
+        if (checked.claimable) {
+          // This phone belongs to a walk-in profile created at the counter
+          // with no login credentials yet — attach these credentials to
+          // that SAME profile instead of creating a second account.
+          const claimed = await claimWalkInAccountAction(values);
+          if (!claimed.ok) {
+            toast.error(
+              claimed.error === 'walk_in_not_found'
+                ? t('auth.invalidEmail')
+                : claimed.error === 'already_has_credentials'
+                  ? t('auth.duplicatePhone')
+                  : claimed.error
+            );
+            return;
+          }
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: values.email,
+            password: values.password,
+          });
+          if (signInError) {
+            toast.error(signInError.message);
+            return;
+          }
+          toast.success(t('auth.claimAccountSuccess'));
+          router.push(redirectTo);
+          router.refresh();
+          return;
+        }
         toast.error(checked.duplicatePhone ? t('auth.duplicatePhone') : t('auth.invalidEmail'));
         return;
       }
