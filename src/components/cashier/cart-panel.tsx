@@ -5,8 +5,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Receipt, X, Trash2, Plus, Minus, Percent, Printer } from 'lucide-react';
-import { formatMoney } from '@/lib/utils';
+import { Loader2, Receipt, X, Trash2, Plus, Minus, Percent, Printer, Search, Check } from 'lucide-react';
+import { formatMoney, normalizePhone } from '@/lib/utils';
 import { useT } from '@/i18n/context';
 import {
   getOpenCartsAction,
@@ -16,6 +16,7 @@ import {
   settleCartAction,
   openCartAction,
   getCustomerWalletBalanceAction,
+  lookupWalletPayerAction,
   updateCartItemQuantityAction,
   applyCartDiscountAction,
   applyLineDiscountAction,
@@ -46,17 +47,44 @@ interface CartPanelProps {
   refreshKey: number;
   activeCartId: string | null;
   onActiveCartChange: (cartId: string | null) => void;
+  /** Called with the newly-issued invoice id right after a successful settle, so the invoice can show in the side panel instead of a new tab. */
+  onSettled?: (invoiceId: string) => void;
 }
 
 const QUICK_CASH_AMOUNTS = [5000, 10000, 20000, 50000]; // 50 / 100 / 200 / 500 SAR, in halalas
+
+interface WalletPayer {
+  id: string;
+  full_name: string | null;
+  phone: string;
+}
 
 interface SettleLine {
   method: 'cash' | 'card' | 'wallet';
   amount: string;
   cardReference: string;
+  /** wallet only — "pay from another wallet" sub-flow. null payer = the cart's own seated customer pays. */
+  showPayerLookup: boolean;
+  payerPhone: string;
+  payerLookupPending: boolean;
+  payerCustomer: WalletPayer | null;
+  payerBalanceCents: number | null;
+  payerConfirmed: boolean;
 }
 
-export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChange }: CartPanelProps) {
+const EMPTY_SETTLE_LINE: SettleLine = {
+  method: 'cash',
+  amount: '',
+  cardReference: '',
+  showPayerLookup: false,
+  payerPhone: '',
+  payerLookupPending: false,
+  payerCustomer: null,
+  payerBalanceCents: null,
+  payerConfirmed: false,
+};
+
+export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChange, onSettled }: CartPanelProps) {
   const { t } = useT();
   const [carts, setCarts] = useState<OpenCartSummary[]>([]);
   const [loading, startLoading] = useTransition();
@@ -75,7 +103,7 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
   const [settleItems, setSettleItems] = useState<Array<{ description: string; amountCents: number }>>([]);
   const [settleCustomerId, setSettleCustomerId] = useState<string | null>(null);
   const [walletBalanceCents, setWalletBalanceCents] = useState<number | null>(null);
-  const [lines, setLines] = useState<SettleLine[]>([{ method: 'cash', amount: '', cardReference: '' }]);
+  const [lines, setLines] = useState<SettleLine[]>([{ ...EMPTY_SETTLE_LINE }]);
   const [settlePending, startSettle] = useTransition();
   const [settleResult, setSettleResult] = useState<{ changeCents: number; invoiceId?: string } | null>(null);
 
@@ -239,7 +267,7 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
       setSettleItems(res.cart.items.map((i) => ({ description: i.description, amountCents: i.amountCents })));
       setSettleCustomerId(res.cart.customerId);
       setWalletBalanceCents(null);
-      setLines([{ method: 'cash', amount: '', cardReference: '' }]);
+      setLines([{ ...EMPTY_SETTLE_LINE }]);
       setSettleResult(null);
 
       if (res.cart.customerId) {
@@ -256,7 +284,7 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
   const remainingCents = settleTotalCents - paidSoFarCents;
   const underpaid = remainingCents > 0;
 
-  const handleAddLine = () => setLines((ls) => [...ls, { method: 'cash', amount: '', cardReference: '' }]);
+  const handleAddLine = () => setLines((ls) => [...ls, { ...EMPTY_SETTLE_LINE }]);
   const handleRemoveLine = (idx: number) => setLines((ls) => ls.filter((_, i) => i !== idx));
   const handleLineChange = (idx: number, patch: Partial<SettleLine>) =>
     setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
@@ -264,17 +292,65 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
     handleLineChange(idx, { amount: (cents / 100).toFixed(2) });
   };
 
+  const handleTogglePayerLookup = (idx: number) => {
+    setLines((ls) =>
+      ls.map((l, i) =>
+        i === idx
+          ? { ...l, showPayerLookup: !l.showPayerLookup, payerPhone: '', payerCustomer: null, payerBalanceCents: null, payerConfirmed: false }
+          : l
+      )
+    );
+  };
+
+  const handlePayerPhoneChange = (idx: number, phone: string) => {
+    // Any edit to the phone invalidates a prior lookup/confirmation — a
+    // mistyped number must never carry over a stale "confirmed" state.
+    handleLineChange(idx, { payerPhone: phone, payerCustomer: null, payerBalanceCents: null, payerConfirmed: false });
+  };
+
+  const handleLookupPayer = (idx: number) => {
+    const line = lines[idx];
+    const normalized = normalizePhone(line.payerPhone, 'SA');
+    if (!normalized) {
+      toast.error(t('cashier.enterSaudiPhone'));
+      return;
+    }
+    handleLineChange(idx, { payerLookupPending: true });
+    startItems(async () => {
+      const res = await lookupWalletPayerAction({ phone: normalized });
+      handleLineChange(idx, { payerLookupPending: false });
+      if (res.error || !res.customer) {
+        toast.error(res.error ?? t('pos.walletPayerNotFound'));
+        handleLineChange(idx, { payerCustomer: null, payerBalanceCents: null });
+        return;
+      }
+      handleLineChange(idx, { payerCustomer: res.customer, payerBalanceCents: res.balanceCents ?? 0, payerConfirmed: false });
+    });
+  };
+
+  const handleConfirmPayer = (idx: number) => handleLineChange(idx, { payerConfirmed: true });
+
   const handleSettle = () => {
     if (!settleCartId) return;
     if (underpaid) {
       toast.error(t('tabs.notEnoughPaid'));
       return;
     }
+    // A wallet line whose cashier opened the "pay from another wallet"
+    // lookup must be explicitly confirmed before it can be charged — this
+    // is the hard stop against silently charging a mistyped stranger.
+    const unconfirmedPayer = lines.some((l) => l.method === 'wallet' && l.showPayerLookup && l.payerCustomer && !l.payerConfirmed);
+    if (unconfirmedPayer) {
+      toast.error(t('pos.confirmWalletPayerFirst'));
+      return;
+    }
+
     const payments = lines
       .map((l) => ({
         method: l.method,
         amountCents: Math.round(Number.parseFloat(l.amount || '0') * 100),
         cardReference: l.method === 'card' ? l.cardReference.trim() || undefined : undefined,
+        payerCustomerId: l.method === 'wallet' && l.payerConfirmed && l.payerCustomer ? l.payerCustomer.id : undefined,
       }))
       .filter((p) => p.amountCents > 0);
 
@@ -287,12 +363,10 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
       setSettleResult({ changeCents: res.result.changeCents, invoiceId: res.result.invoiceId });
       if (activeCartId === settleCartId) onActiveCartChange(null);
       refresh();
-      // Auto-print: opens the dedicated receipt page in a new tab, which
-      // triggers window.print() itself on load (see ReceiptAutoPrint). A
-      // popup blocker just means the cashier uses the manual button below.
-      if (res.result.invoiceId) {
-        window.open(`/invoices/${res.result.invoiceId}/receipt`, '_blank');
-      }
+      // Shows in the invoice side panel on this same screen instead of
+      // opening a new browser tab — the cashier can still print manually
+      // via the button below (or the side panel's own reprint button).
+      if (res.result.invoiceId) onSettled?.(res.result.invoiceId);
     });
   };
 
@@ -561,11 +635,70 @@ export function CartPanel({ branchId, refreshKey, activeCartId, onActiveCartChan
                           />
                         )}
 
-                        {line.method === 'wallet' && (
-                          <div className="text-xs text-muted-foreground">
-                            {settleCustomerId
-                              ? `${t('cashier.wallet')}: ${walletBalanceCents !== null ? formatMoney(walletBalanceCents) : '—'}`
-                              : t('tabs.walletRequiresCustomer')}
+                        {line.method === 'wallet' && !line.showPayerLookup && (
+                          <div className="space-y-1.5">
+                            <div className="text-xs text-muted-foreground">
+                              {settleCustomerId
+                                ? `${t('cashier.wallet')}: ${walletBalanceCents !== null ? formatMoney(walletBalanceCents) : '—'}`
+                                : t('tabs.walletRequiresCustomer')}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleTogglePayerLookup(idx)}
+                              className="text-xs text-gold-400 hover:underline"
+                            >
+                              {t('pos.payFromAnotherWallet')}
+                            </button>
+                          </div>
+                        )}
+
+                        {line.method === 'wallet' && line.showPayerLookup && (
+                          <div className="space-y-1.5 rounded-lg border border-border/40 p-2">
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                value={line.payerPhone}
+                                onChange={(e) => handlePayerPhoneChange(idx, e.target.value)}
+                                placeholder={t('cashier.phoneNumber')}
+                                dir="ltr"
+                                inputMode="tel"
+                                type="tel"
+                                className="h-9 font-mono tabular-nums text-sm"
+                              />
+                              <Button size="sm" variant="outline" disabled={line.payerLookupPending} onClick={() => handleLookupPayer(idx)}>
+                                {line.payerLookupPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                              </Button>
+                              <button type="button" onClick={() => handleTogglePayerLookup(idx)} className="text-muted-foreground hover:text-foreground">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+
+                            {line.payerCustomer && !line.payerConfirmed && (() => {
+                              const amountCents = Math.round(Number.parseFloat(line.amount || '0') * 100);
+                              const insufficientBalance = line.payerBalanceCents !== null && amountCents > 0 && line.payerBalanceCents < amountCents;
+                              return (
+                                <div className="rounded-lg border border-gold-500/30 bg-gold-500/5 p-2 space-y-1.5">
+                                  <div className="text-xs">
+                                    <span className="font-medium">{line.payerCustomer.full_name || line.payerCustomer.phone}</span>
+                                    {' · '}
+                                    {t('pos.walletBalance')}: <span className="font-mono tabular-nums">{formatMoney(line.payerBalanceCents ?? 0)}</span>
+                                  </div>
+                                  {insufficientBalance && <p className="text-xs text-destructive">{t('cashier.walletInsufficient')}</p>}
+                                  <Button size="sm" variant="gold" className="w-full" disabled={insufficientBalance || amountCents <= 0} onClick={() => handleConfirmPayer(idx)}>
+                                    {t('pos.chargeFromWalletConfirm', {
+                                      amount: formatMoney(amountCents),
+                                      name: line.payerCustomer.full_name || line.payerCustomer.phone,
+                                    })}
+                                  </Button>
+                                </div>
+                              );
+                            })()}
+
+                            {line.payerCustomer && line.payerConfirmed && (
+                              <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+                                <Check className="h-3.5 w-3.5" />
+                                {t('pos.chargingFromWallet', { name: line.payerCustomer.full_name || line.payerCustomer.phone })}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

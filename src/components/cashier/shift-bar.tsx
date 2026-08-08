@@ -6,14 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Wallet2, X } from 'lucide-react';
+import { Loader2, Wallet2, X, Lock } from 'lucide-react';
 import { formatMoney, formatDate } from '@/lib/utils';
 import { useT } from '@/i18n/context';
-import {
-  openShiftAction,
-  closeShiftAction,
-  getShiftSummaryAction,
-} from '@/app/(dashboard)/dashboard/cashier/actions';
+import { closeShiftAction, getShiftSummaryAction } from '@/app/(dashboard)/dashboard/cashier/actions';
 
 export interface OpenShiftState {
   id: string;
@@ -23,16 +19,21 @@ export interface OpenShiftState {
 
 interface ShiftBarProps {
   branchId: string;
-  shift: OpenShiftState | null;
-  onShiftOpened: (shift: OpenShiftState) => void;
+  /** undefined = still loading; null = today's store-day was already closed; else the open shift. */
+  shift: OpenShiftState | null | undefined;
   onShiftClosed: () => void;
 }
 
-export function ShiftBar({ branchId, shift, onShiftOpened, onShiftClosed }: ShiftBarProps) {
+/**
+ * The shift is now the store-day's shift, auto-opened by the cashier flow's
+ * own load effect (see cashier-flow.tsx / ensureShiftOpenForToday) — there
+ * is no manual "open shift" step anymore. This bar only ever shows a
+ * loading state, the open store-day (with a close button), or a closed
+ * message; cash reconciliation on close is unchanged.
+ */
+export function ShiftBar({ shift, onShiftClosed }: ShiftBarProps) {
   const { t } = useT();
-  const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
-  const [openingFloat, setOpeningFloat] = useState('');
   const [countedCash, setCountedCash] = useState('');
   const [closeNote, setCloseNote] = useState('');
   const [collectedCents, setCollectedCents] = useState<number | null>(null);
@@ -44,25 +45,6 @@ export function ShiftBar({ branchId, shift, onShiftOpened, onShiftClosed }: Shif
     varianceCents: number;
   } | null>(null);
   const [pending, startPending] = useTransition();
-
-  const handleOpen = () => {
-    const floatCents = Math.round(Number.parseFloat(openingFloat || '0') * 100);
-    if (!Number.isFinite(floatCents) || floatCents < 0) {
-      toast.error(t('shifts.invalidAmount'));
-      return;
-    }
-    startPending(async () => {
-      const res = await openShiftAction({ branchId, openingFloatCents: floatCents });
-      if (res.error || !res.result) {
-        toast.error(res.error ?? t('shifts.failedToOpen'));
-        return;
-      }
-      onShiftOpened({ id: res.result.shiftId, openedAt: new Date().toISOString(), openingFloatCents: floatCents });
-      setShowOpenDialog(false);
-      setOpeningFloat('');
-      toast.success(t('shifts.shiftOpened'));
-    });
-  };
 
   const handleOpenCloseDialog = () => {
     if (!shift) return;
@@ -106,67 +88,37 @@ export function ShiftBar({ branchId, shift, onShiftOpened, onShiftClosed }: Shif
     <>
       <Card className="border-gold-500/20 bg-gold-500/5">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-          {shift ? (
+          {shift === undefined ? (
+            <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
+          ) : shift === null ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Lock className="h-4 w-4" />
+              {t('shifts.storeDayClosed')}
+            </div>
+          ) : (
             <>
               <div className="flex items-center gap-2 text-sm">
                 <Wallet2 className="h-4 w-4 text-gold-400" />
-                <span>
-                  {t('shifts.openSince', { time: formatDate(shift.openedAt) })}
+                <span>{t('shifts.storeDaySince', { time: formatDate(shift.openedAt) })}</span>
+                <span className="text-muted-foreground">
+                  · {t('shifts.openingFloat')}: <span className="font-mono tabular-nums">{formatMoney(shift.openingFloatCents)}</span>
                 </span>
               </div>
               <Button variant="outline" size="sm" disabled={pending} onClick={handleOpenCloseDialog}>
                 {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {t('shifts.closeShift')}
-              </Button>
-            </>
-          ) : (
-            <>
-              <div className="text-sm text-muted-foreground">{t('shifts.noOpenShift')}</div>
-              <Button variant="gold" size="sm" onClick={() => setShowOpenDialog(true)}>
-                {t('shifts.openShift')}
+                {t('shifts.closeStoreDay')}
               </Button>
             </>
           )}
         </CardContent>
       </Card>
 
-      {showOpenDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <Card className="w-full max-w-sm glass border-gold-500/30">
-            <CardContent className="p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">{t('shifts.openShift')}</h3>
-                <button type="button" onClick={() => setShowOpenDialog(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">{t('shifts.openingFloat')}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={openingFloat}
-                  onChange={(e) => setOpeningFloat(e.target.value)}
-                  className="h-12 font-mono tabular-nums"
-                  placeholder="0.00"
-                />
-              </div>
-              <Button variant="gold" size="lg" className="w-full" disabled={pending} onClick={handleOpen}>
-                {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-                {t('common.confirm')}
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
       {showCloseDialog && shift && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <Card className="w-full max-w-md glass border-gold-500/30">
             <CardContent className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">{t('shifts.closeShift')}</h3>
+                <h3 className="text-lg font-semibold">{t('shifts.closeStoreDay')}</h3>
                 <button
                   type="button"
                   onClick={() => {
@@ -209,7 +161,7 @@ export function ShiftBar({ branchId, shift, onShiftOpened, onShiftClosed }: Shif
                   </div>
                   <Button variant="gold" size="lg" className="w-full" disabled={pending} onClick={handleClose}>
                     {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t('shifts.closeShift')}
+                    {t('shifts.closeStoreDay')}
                   </Button>
                 </>
               ) : (

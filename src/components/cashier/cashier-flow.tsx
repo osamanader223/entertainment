@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,8 @@ import { ShiftBar, type OpenShiftState } from './shift-bar';
 import { CartPanel } from './cart-panel';
 import { CustomerSearchBar } from './customer-search-bar';
 import { InvoiceHistoryPanel } from './invoice-history-panel';
+import { RunningSessionsPanel } from './running-sessions-panel';
+import { InvoiceSidePanel } from './invoice-side-panel';
 import type { PublicVenueState, PublicStation } from '@/lib/venue';
 import { useLiveVenueState } from '@/hooks/useLiveVenueState';
 import { cn, formatMoney, normalizePhone } from '@/lib/utils';
@@ -25,7 +27,6 @@ import {
   startCashierSessionAction,
   getOpenShiftAction,
   openCartAction,
-  getLastInvoiceAction,
 } from '@/app/(dashboard)/dashboard/cashier/actions';
 import { useT } from '@/i18n/context';
 
@@ -48,14 +49,12 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
 
   // Owns the ONE live venue-state subscription for this whole flow — both
   // GameTypePicker and StationPicker read from it as props instead of each
-  // subscribing themselves. useLiveVenueState's realtime channel is named
-  // after the branch, and the Supabase browser client is a singleton, so a
-  // second simultaneous subscriber to the same channel name previously
-  // crashed with "cannot add postgres_changes callbacks after subscribe()".
+  // subscribing themselves, and RunningSessionsPanel piggybacks its own
+  // refetch on this same tick instead of opening a second realtime channel.
   const { state: liveState, isStale } = useLiveVenueState(branchCode, initial);
   const stations = liveState?.stations ?? [];
 
-  // --- Section 1: customer ---
+  // --- Persistent top bar: customer identity (Part 1 — phone-first, no anonymous walk-ins) ---
   const [phone, setPhone] = useState('');
   const [customer, setCustomer] = useState<SelectedCustomer | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -65,7 +64,7 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [walletPending, startWallet] = useTransition();
 
-  // --- Section 2: game type + station + duration (or players/games for bowling) ---
+  // --- Game type + station + duration (or players/games for bowling) ---
   const [selectedGameTypeCode, setSelectedGameTypeCode] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState<PublicStation | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
@@ -79,37 +78,45 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
 
   const isBowling = selectedGameTypeCode?.toLowerCase().includes('bowl') ?? false;
 
-  // --- Section 3: payment ---
+  // --- Payment (seat now) ---
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | null>(null);
   const [seatPending, startSeat] = useTransition();
 
-  // --- Shift + carts ---
-  const [shift, setShift] = useState<OpenShiftState | null>(null);
+  // --- Shift (store-day, auto-ensured) + carts + invoice side panel ---
+  // undefined = still loading; null = today's store-day is already closed.
+  const [shift, setShift] = useState<OpenShiftState | null | undefined>(undefined);
   const [cartsRefreshKey, setCartsRefreshKey] = useState(0);
   const [activeCartId, setActiveCartId] = useState<string | null>(null);
   const [seatMode, setSeatMode] = useState<'pay_now' | 'tab'>('pay_now');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sidePanelInvoiceId, setSidePanelInvoiceId] = useState<string | null>(null);
   const [reprintPending, startReprint] = useTransition();
+
+  const loadShift = useCallback(() => {
+    (async () => {
+      const res = await getOpenShiftAction({ branchId });
+      if (res.error) {
+        toast.error(res.error);
+        setShift(null);
+        return;
+      }
+      setShift(res.shift ? { id: res.shift.id, openedAt: res.shift.openedAt, openingFloatCents: res.shift.openingFloatCents } : null);
+    })();
+  }, [branchId]);
+
+  useEffect(() => {
+    loadShift();
+  }, [loadShift]);
 
   const handleReprintLast = () => {
     startReprint(async () => {
-      const res = await getLastInvoiceAction({ branchId, shiftId: shift?.id });
-      if (res.error || !res.invoice) {
-        toast.error(res.error ?? t('pos.noInvoiceToReprint'));
+      if (!sidePanelInvoiceId) {
+        toast.error(t('pos.noInvoiceToReprint'));
         return;
       }
-      window.open(`/invoices/${res.invoice.id}/receipt`, '_blank');
+      window.open(`/invoices/${sidePanelInvoiceId}/receipt`, '_blank');
     });
   };
-
-  useEffect(() => {
-    (async () => {
-      const res = await getOpenShiftAction({ branchId });
-      if (!res.error && res.shift) {
-        setShift({ id: res.shift.id, openedAt: res.shift.openedAt, openingFloatCents: res.shift.openingFloatCents });
-      }
-    })();
-  }, [branchId]);
 
   const normalizedPhone = useMemo(() => normalizePhone(phone, 'SA'), [phone]);
 
@@ -297,8 +304,8 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
       if (res.error) {
         // 'station_reserved' means an upcoming reservation on this station
         // would collide with this walk-in's duration — surface that clearly
-        // rather than a raw error code. 'no_open_shift' means the cashier
-        // hasn't opened a shift yet.
+        // rather than a raw error code. 'no_open_shift' means today's store
+        // day hasn't opened yet (or was already closed).
         toast.error(
           res.error === 'station_reserved'
             ? t('scheduling.station_reserved')
@@ -329,35 +336,10 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
   };
 
   return (
-    <div className="space-y-6">
-      <ShiftBar
-        branchId={branchId}
-        shift={shift}
-        onShiftOpened={setShift}
-        onShiftClosed={() => setShift(null)}
-      />
+    <div className="space-y-4">
+      <ShiftBar branchId={branchId} shift={shift} onShiftClosed={() => loadShift()} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex-1 min-w-[240px]">
-          <CustomerSearchBar
-            activeCartId={activeCartId}
-            onLinked={() => setCartsRefreshKey((k) => k + 1)}
-          />
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
-          <History className="h-3.5 w-3.5" />
-          {t('pos.invoiceHistory')}
-        </Button>
-        <Button variant="outline" size="sm" disabled={reprintPending} onClick={handleReprintLast}>
-          {reprintPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
-          {t('pos.reprintLastInvoice')}
-        </Button>
-      </div>
-
-      <InvoiceHistoryPanel branchId={branchId} shiftId={shift?.id ?? null} open={historyOpen} onClose={() => setHistoryOpen(false)} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Section 1 — Customer */}
+      {/* Persistent phone-first identity bar (Part 1) — always at the top, drives who the game/table picker seats. */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">{t('cashier.step1')}</CardTitle>
@@ -388,276 +370,296 @@ export function CashierFlow({ branchId, branchCode, initial }: CashierFlowProps)
               </Button>
             </div>
           ) : (
-            <div className="space-y-4">
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="05XXXXXXXX"
-                dir="ltr"
-                inputMode="tel"
-                type="tel"
-                className="h-14 text-center text-2xl font-mono tabular-nums"
-              />
-
-              <PhonePad value={phone} onChange={setPhone} />
-
-              {phone.length > 0 && !normalizedPhone && (
-                <p className="text-xs text-destructive">{t('cashier.enterSaudiPhone')}</p>
-              )}
-
-              <Button
-                variant="gold"
-                size="xl"
-                className="w-full"
-                disabled={!normalizedPhone || customerPending}
-                onClick={handleFindOrCreate}
-              >
-                {customerPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                {t('cashier.findOrCreate')}
-              </Button>
-
-              {showCreateForm && (
-                <div className="space-y-3 rounded-lg border border-border/60 p-4">
-                  <p className="text-sm text-muted-foreground">{t('cashier.noAccountFound')}</p>
-                  <div className="space-y-2">
-                    <Label htmlFor="newCustomerName">{t('cashier.fullName')}</Label>
-                    <Input
-                      id="newCustomerName"
-                      value={newCustomerName}
-                      onChange={(e) => setNewCustomerName(e.target.value)}
-                      placeholder="Ahmed Al-Saud"
-                      className="h-12"
-                    />
-                  </div>
-                  <Button
-                    variant="gold"
-                    size="lg"
-                    className="w-full"
-                    disabled={newCustomerName.trim().length < 2 || customerPending}
-                    onClick={handleCreateWalkIn}
-                  >
-                    {customerPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t('cashier.createWalkIn')}
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Section 2 — Game type, then station, then time (same order as the customer booking flow) */}
-      <Card className={cn(!customer && 'opacity-50 pointer-events-none')}>
-        <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-          <CardTitle className="text-lg">{t('cashier.step2')}</CardTitle>
-          <span className={cn('inline-flex items-center gap-1.5 text-xs text-muted-foreground', isStale && 'text-amber-400')}>
-            <Radio className={cn('h-3.5 w-3.5', !isStale && 'text-emerald-400 animate-pulse')} />
-            {isStale ? 'refreshing…' : 'live'}
-          </span>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {!liveState ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-16 rounded-xl bg-muted/10 animate-pulse" />
-              ))}
-            </div>
-          ) : (
-            <GameTypePicker
-              stations={stations}
-              selectedCode={selectedGameTypeCode}
-              onSelect={handleSelectGameType}
-            />
-          )}
-
-          {selectedGameTypeCode && (
-            <StationPicker
-              stations={stations}
-              gameTypeCode={selectedGameTypeCode}
-              selectedStationId={selectedStation?.id ?? null}
-              onSelect={setSelectedStation}
-            />
-          )}
-
-          {selectedStation && isBowling && (
-            <div className="space-y-4">
-              <div>
-                <div className="text-sm font-medium mb-2">{t('slots.howManyPlayers')}</div>
-                <div className="flex items-center gap-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    disabled={playerCount <= 1}
-                    onClick={() => setPlayerCount((p) => Math.max(1, p - 1))}
-                  >
-                    −
-                  </Button>
-                  <span className="text-2xl font-bold tabular-nums w-8 text-center">{playerCount}</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    disabled={playerCount >= 8}
-                    onClick={() => setPlayerCount((p) => Math.min(8, p + 1))}
-                  >
-                    +
-                  </Button>
-                </div>
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-2">{t('slots.singleOrDoubleGame')}</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button type="button" variant={gameCount === 1 ? 'gold' : 'outline'} size="xl" onClick={() => setGameCount(1)}>
-                    {t('slots.singleGame')}
-                  </Button>
-                  <Button type="button" variant={gameCount === 2 ? 'gold' : 'outline'} size="xl" onClick={() => setGameCount(2)}>
-                    {t('slots.doubleGame')}
-                  </Button>
-                </div>
-              </div>
-              {bowlingDurationMinutes !== null && (
-                <div className="text-xs text-muted-foreground">{t('slots.estimatedDuration', { minutes: String(bowlingDurationMinutes) })}</div>
-              )}
-            </div>
-          )}
-
-          {selectedStation && !isBowling && (
-            <>
-              <div className="grid grid-cols-4 gap-2">
-                {DURATION_PRESETS.map((min) => (
-                  <Button
-                    key={min}
-                    type="button"
-                    variant={!showCustomDuration && duration === min ? 'gold' : 'outline'}
-                    size="xl"
-                    onClick={() => {
-                      setDuration(min);
-                      setShowCustomDuration(false);
-                    }}
-                  >
-                    {min} {t('cashier.minutes')}
-                  </Button>
-                ))}
-                <Button
-                  type="button"
-                  variant={showCustomDuration ? 'gold' : 'outline'}
-                  size="xl"
-                  onClick={() => setShowCustomDuration(true)}
-                >
-                  {t('cashier.custom')}
-                </Button>
-              </div>
-
-              {showCustomDuration && (
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,320px)_1fr] gap-4 items-start">
+              <div className="space-y-3">
                 <Input
-                  type="number"
-                  min={5}
-                  max={480}
-                  value={customDuration}
-                  onChange={(e) => setCustomDuration(e.target.value)}
-                  placeholder={t('cashier.minuteRange')}
-                  className="h-12 font-mono tabular-nums"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="05XXXXXXXX"
+                  dir="ltr"
+                  inputMode="tel"
+                  type="tel"
+                  className="h-14 text-center text-2xl font-mono tabular-nums"
                 />
-              )}
-            </>
-          )}
+                {phone.length > 0 && !normalizedPhone && (
+                  <p className="text-xs text-destructive">{t('cashier.enterSaudiPhone')}</p>
+                )}
+                <Button
+                  variant="gold"
+                  size="xl"
+                  className="w-full"
+                  disabled={!normalizedPhone || customerPending}
+                  onClick={handleFindOrCreate}
+                >
+                  {customerPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {t('cashier.findOrCreate')}
+                </Button>
+              </div>
 
-          {pricePending ? (
-            <div className="text-center text-sm text-muted-foreground">{t('cashier.calculatingPrice')}</div>
-          ) : estimatedPrice !== null ? (
-            <div className="rounded-lg border border-gold-500/20 bg-gold-500/10 p-4 text-center">
-              <div className="text-xs text-muted-foreground">{t('cashier.estimatedTotal')}</div>
-              <div className="text-3xl font-bold tabular-nums text-gold-400">
-                {formatMoney(estimatedPrice)}
+              <div className="space-y-3">
+                <PhonePad value={phone} onChange={setPhone} />
+                {showCreateForm && (
+                  <div className="space-y-3 rounded-lg border border-border/60 p-4">
+                    <p className="text-sm text-muted-foreground">{t('cashier.noAccountFound')}</p>
+                    <div className="space-y-2">
+                      <Label htmlFor="newCustomerName">{t('cashier.fullName')}</Label>
+                      <Input
+                        id="newCustomerName"
+                        value={newCustomerName}
+                        onChange={(e) => setNewCustomerName(e.target.value)}
+                        placeholder="Ahmed Al-Saud"
+                        className="h-12"
+                      />
+                    </div>
+                    <Button
+                      variant="gold"
+                      size="lg"
+                      className="w-full"
+                      disabled={newCustomerName.trim().length < 2 || customerPending}
+                      onClick={handleCreateWalkIn}
+                    >
+                      {customerPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {t('cashier.createWalkIn')}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
-          ) : null}
+          )}
         </CardContent>
       </Card>
 
-      {/* Section 3 — Payment + Confirm */}
-      <Card className={cn((!customer || !selectedStation || !resolvedDuration) && 'opacity-50 pointer-events-none')}>
-        <CardHeader>
-          <CardTitle className="text-lg">{t('cashier.step3')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {!shift && (
-            <p className="text-xs text-destructive">{t('shifts.mustOpenShiftFirst')}</p>
-          )}
-
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              type="button"
-              variant={seatMode === 'pay_now' ? 'gold' : 'outline'}
-              size="lg"
-              onClick={() => setSeatMode('pay_now')}
-            >
-              {t('tabs.payNow')}
-            </Button>
-            <Button
-              type="button"
-              variant={seatMode === 'tab' ? 'gold' : 'outline'}
-              size="lg"
-              onClick={() => setSeatMode('tab')}
-            >
-              <Receipt className="h-4 w-4" />
-              {t('tabs.addToTab')}
-            </Button>
-          </div>
-
-          {seatMode === 'pay_now' ? (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <Button
-                  type="button"
-                  variant={paymentMethod === 'cash' ? 'gold' : 'outline'}
-                  size="xl"
-                  className="h-20 flex-col gap-1.5"
-                  onClick={() => setPaymentMethod('cash')}
-                >
-                  <Banknote className="h-5 w-5" />
-                  {t('cashier.cash')}
-                </Button>
-                <Button
-                  type="button"
-                  variant={paymentMethod === 'wallet' ? 'gold' : 'outline'}
-                  size="xl"
-                  className="h-20 flex-col gap-1.5"
-                  onClick={() => setPaymentMethod('wallet')}
-                >
-                  <Wallet className="h-5 w-5" />
-                  <span>{t('cashier.walletLabel')}</span>
-                  {walletBalance !== null && (
-                    <span className="text-xs font-mono opacity-80">{formatMoney(walletBalance)}</span>
-                  )}
-                </Button>
-              </div>
-
-              {walletInsufficient && (
-                <p className="text-xs text-destructive">{t('cashier.walletInsufficient')}</p>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {activeCartId ? t('tabs.willAddToActiveCart') : t('tabs.willOpenNewCart')}
-            </p>
-          )}
-
-          <Button variant="gold" size="xl" className="w-full" disabled={!canSeat} onClick={handleSeatNow}>
-            {seatPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {seatMode === 'tab' ? t('tabs.seatAndAddToTab') : t('cashier.seatNow')}
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Part 7 — link-to-active-cart + invoice history + reprint controls stay present, moved up next to the identity bar. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex-1 min-w-[240px]">
+          <CustomerSearchBar
+            activeCartId={activeCartId}
+            onLinked={() => setCartsRefreshKey((k) => k + 1)}
+          />
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
+          <History className="h-3.5 w-3.5" />
+          {t('pos.invoiceHistory')}
+        </Button>
+        <Button variant="outline" size="sm" disabled={reprintPending} onClick={handleReprintLast}>
+          {reprintPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+          {t('pos.reprintLastInvoice')}
+        </Button>
       </div>
 
-      <CartPanel
+      <InvoiceHistoryPanel
         branchId={branchId}
-        refreshKey={cartsRefreshKey}
-        activeCartId={activeCartId}
-        onActiveCartChange={setActiveCartId}
+        shiftId={shift?.id ?? null}
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onView={(invoiceId) => setSidePanelInvoiceId(invoiceId)}
       />
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6 items-start">
+        <div className="space-y-6">
+          {/* Part 2 — game/table/params + payment, unified into one panel instead of split cards. */}
+          <Card className={cn(!customer && 'opacity-50 pointer-events-none')}>
+            <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+              <CardTitle className="text-lg">{t('cashier.step2')}</CardTitle>
+              <span className={cn('inline-flex items-center gap-1.5 text-xs text-muted-foreground', isStale && 'text-amber-400')}>
+                <Radio className={cn('h-3.5 w-3.5', !isStale && 'text-emerald-400 animate-pulse')} />
+                {isStale ? 'refreshing…' : 'live'}
+              </span>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {!liveState ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-16 rounded-xl bg-muted/10 animate-pulse" />
+                  ))}
+                </div>
+              ) : (
+                <GameTypePicker
+                  stations={stations}
+                  selectedCode={selectedGameTypeCode}
+                  onSelect={handleSelectGameType}
+                />
+              )}
+
+              {selectedGameTypeCode && (
+                <StationPicker
+                  stations={stations}
+                  gameTypeCode={selectedGameTypeCode}
+                  selectedStationId={selectedStation?.id ?? null}
+                  onSelect={setSelectedStation}
+                />
+              )}
+
+              {selectedStation && isBowling && (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-sm font-medium mb-2">{t('slots.howManyPlayers')}</div>
+                    <div className="flex items-center gap-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        disabled={playerCount <= 1}
+                        onClick={() => setPlayerCount((p) => Math.max(1, p - 1))}
+                      >
+                        −
+                      </Button>
+                      <span className="text-2xl font-bold tabular-nums w-8 text-center">{playerCount}</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        disabled={playerCount >= 8}
+                        onClick={() => setPlayerCount((p) => Math.min(8, p + 1))}
+                      >
+                        +
+                      </Button>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium mb-2">{t('slots.singleOrDoubleGame')}</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button type="button" variant={gameCount === 1 ? 'gold' : 'outline'} size="xl" onClick={() => setGameCount(1)}>
+                        {t('slots.singleGame')}
+                      </Button>
+                      <Button type="button" variant={gameCount === 2 ? 'gold' : 'outline'} size="xl" onClick={() => setGameCount(2)}>
+                        {t('slots.doubleGame')}
+                      </Button>
+                    </div>
+                  </div>
+                  {bowlingDurationMinutes !== null && (
+                    <div className="text-xs text-muted-foreground">{t('slots.estimatedDuration', { minutes: String(bowlingDurationMinutes) })}</div>
+                  )}
+                </div>
+              )}
+
+              {selectedStation && !isBowling && (
+                <>
+                  <div className="grid grid-cols-4 gap-2">
+                    {DURATION_PRESETS.map((min) => (
+                      <Button
+                        key={min}
+                        type="button"
+                        variant={!showCustomDuration && duration === min ? 'gold' : 'outline'}
+                        size="xl"
+                        onClick={() => {
+                          setDuration(min);
+                          setShowCustomDuration(false);
+                        }}
+                      >
+                        {min} {t('cashier.minutes')}
+                      </Button>
+                    ))}
+                    <Button
+                      type="button"
+                      variant={showCustomDuration ? 'gold' : 'outline'}
+                      size="xl"
+                      onClick={() => setShowCustomDuration(true)}
+                    >
+                      {t('cashier.custom')}
+                    </Button>
+                  </div>
+
+                  {showCustomDuration && (
+                    <Input
+                      type="number"
+                      min={5}
+                      max={480}
+                      value={customDuration}
+                      onChange={(e) => setCustomDuration(e.target.value)}
+                      placeholder={t('cashier.minuteRange')}
+                      className="h-12 font-mono tabular-nums"
+                    />
+                  )}
+                </>
+              )}
+
+              {pricePending ? (
+                <div className="text-center text-sm text-muted-foreground">{t('cashier.calculatingPrice')}</div>
+              ) : estimatedPrice !== null ? (
+                <div className="rounded-lg border border-gold-500/20 bg-gold-500/10 p-4 text-center">
+                  <div className="text-xs text-muted-foreground">{t('cashier.estimatedTotal')}</div>
+                  <div className="text-3xl font-bold tabular-nums text-gold-400">
+                    {formatMoney(estimatedPrice)}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedStation && resolvedDuration && (
+                <div className="pt-4 border-t border-border/40 space-y-4">
+                  {!shift && <p className="text-xs text-destructive">{t('shifts.mustOpenShiftFirst')}</p>}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="button" variant={seatMode === 'pay_now' ? 'gold' : 'outline'} size="lg" onClick={() => setSeatMode('pay_now')}>
+                      {t('tabs.payNow')}
+                    </Button>
+                    <Button type="button" variant={seatMode === 'tab' ? 'gold' : 'outline'} size="lg" onClick={() => setSeatMode('tab')}>
+                      <Receipt className="h-4 w-4" />
+                      {t('tabs.addToTab')}
+                    </Button>
+                  </div>
+
+                  {seatMode === 'pay_now' ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Button
+                          type="button"
+                          variant={paymentMethod === 'cash' ? 'gold' : 'outline'}
+                          size="xl"
+                          className="h-20 flex-col gap-1.5"
+                          onClick={() => setPaymentMethod('cash')}
+                        >
+                          <Banknote className="h-5 w-5" />
+                          {t('cashier.cash')}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={paymentMethod === 'wallet' ? 'gold' : 'outline'}
+                          size="xl"
+                          className="h-20 flex-col gap-1.5"
+                          onClick={() => setPaymentMethod('wallet')}
+                        >
+                          <Wallet className="h-5 w-5" />
+                          <span>{t('cashier.walletLabel')}</span>
+                          {walletBalance !== null && (
+                            <span className="text-xs font-mono opacity-80">{formatMoney(walletBalance)}</span>
+                          )}
+                        </Button>
+                      </div>
+
+                      {walletInsufficient && <p className="text-xs text-destructive">{t('cashier.walletInsufficient')}</p>}
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {activeCartId ? t('tabs.willAddToActiveCart') : t('tabs.willOpenNewCart')}
+                    </p>
+                  )}
+
+                  <Button variant="gold" size="xl" className="w-full" disabled={!canSeat} onClick={handleSeatNow}>
+                    {seatPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {seatMode === 'tab' ? t('tabs.seatAndAddToTab') : t('cashier.seatNow')}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Part 3 — running sessions, end right from this screen. */}
+          <RunningSessionsPanel branchId={branchId} refreshSignal={liveState?.fetched_at ?? ''} />
+
+          {/* Part 5 — cart / open tabs / split settlement (incl. cross-wallet payer). */}
+          <CartPanel
+            branchId={branchId}
+            refreshKey={cartsRefreshKey}
+            activeCartId={activeCartId}
+            onActiveCartChange={setActiveCartId}
+            onSettled={(invoiceId) => setSidePanelInvoiceId(invoiceId)}
+          />
+        </div>
+
+        {/* Part 6 — invoice side panel, always visible, never a new tab. */}
+        <InvoiceSidePanel invoiceId={sidePanelInvoiceId} />
+      </div>
     </div>
   );
 }

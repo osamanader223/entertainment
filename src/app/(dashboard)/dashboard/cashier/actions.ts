@@ -13,7 +13,8 @@ import {
   computeSessionPriceForStation,
   startCashierSession,
 } from '@/lib/cashier';
-import { openShift, getOpenShift, closeShift, getShiftSummary } from '@/lib/shifts';
+import { ensureShiftOpenForToday, closeStoreDayShift, getShiftSummary } from '@/lib/shifts';
+import { endActiveSessionForStation, getActiveSessionsForBranch } from '@/lib/sessions';
 import {
   openCart,
   getOpenCarts,
@@ -28,6 +29,7 @@ import {
   clearCartDiscount,
 } from '@/lib/carts';
 import { searchInvoices, getLastInvoice, getInvoicePaymentBreakdown, getInvoiceById, issueCreditNote } from '@/lib/invoices';
+import QRCode from 'qrcode';
 
 const DEMO_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const DEMO_BRANCH_ID_FALLBACK = '22222222-2222-2222-2222-222222222222';
@@ -56,6 +58,25 @@ export async function lookupCustomerAction(input: { phone: string }) {
 
   const customer = await lookupCustomerByPhone(parsed.data.phone);
   return { customer };
+}
+
+/**
+ * Look up ANY customer by phone (not just the seated one) plus their wallet
+ * balance — powers "pay from another wallet" at settlement. The cashier can
+ * initiate this with just a phone number, but the caller (cart-panel.tsx)
+ * must show the returned name + balance and get an explicit separate
+ * confirm before actually charging it — a mistyped number must never
+ * silently charge a stranger.
+ */
+export async function lookupWalletPayerAction(input: { phone: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  const parsed = lookupSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid phone number' };
+
+  const customer = await lookupCustomerByPhone(parsed.data.phone);
+  if (!customer) return { customer: null, balanceCents: null };
+  const balanceCents = await getWalletBalance(DEMO_TENANT_ID, customer.id);
+  return { customer, balanceCents };
 }
 
 const createWalkInSchema = z.object({
@@ -203,7 +224,7 @@ export async function startCashierSessionAction(input: {
   }
 
   try {
-    const shift = await getOpenShift(DEMO_TENANT_ID, parsed.data.branchId, ctx.userId);
+    const shift = await ensureShiftOpenForToday(DEMO_TENANT_ID, parsed.data.branchId, ctx.userId);
     if (!shift) return { error: 'no_open_shift' };
 
     const admin = createAdminClient();
@@ -247,39 +268,66 @@ export async function startCashierSessionAction(input: {
 }
 
 // ---------------------------------------------------------------------
-// Shifts
+// Running sessions — end from the same screen (PART 3)
 // ---------------------------------------------------------------------
 
-export async function getOpenShiftAction(input: { branchId: string }) {
-  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+export async function getActiveSessionsAction(input: { branchId: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
   try {
-    const shift = await getOpenShift(DEMO_TENANT_ID, input.branchId, ctx.userId);
-    return { shift };
+    const sessions = await getActiveSessionsForBranch(DEMO_TENANT_ID, input.branchId);
+    return { sessions };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Failed to load shift' };
+    return { error: e instanceof Error ? e.message : 'Failed to load active sessions' };
   }
 }
 
-const openShiftSchema = z.object({
-  branchId: z.string().uuid(),
-  openingFloatCents: z.number().int().min(0).max(10_000_000),
-});
+const endSessionSchema = z.object({ stationId: z.string().uuid() });
 
-export async function openShiftAction(input: { branchId: string; openingFloatCents: number }) {
+/**
+ * Ends the running session on a station. Staff-only — enforced here via
+ * requireRole (same gate every other cashier action uses), not just hidden
+ * behind a UI button, so a customer-facing surface could never reach this.
+ */
+export async function endSessionAction(input: { stationId: string }) {
   const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
-  const parsed = openShiftSchema.safeParse(input);
+  const parsed = endSessionSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
 
   try {
-    const result = await openShift({
+    const admin = createAdminClient();
+    const { data: station } = await admin.from('stations').select('branch_id').eq('id', parsed.data.stationId).maybeSingle();
+    if (!station) return { error: 'Station not found' };
+
+    const result = await endActiveSessionForStation({
+      stationId: parsed.data.stationId,
       tenantId: DEMO_TENANT_ID,
-      branchId: parsed.data.branchId,
-      cashierId: ctx.userId,
-      openingFloatCents: parsed.data.openingFloatCents,
+      branchId: station.branch_id,
+      endedBy: ctx.userId,
     });
     return { result };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Failed to open shift' };
+    return { error: e instanceof Error ? e.message : 'Failed to end session' };
+  }
+}
+
+// ---------------------------------------------------------------------
+// Shifts
+// ---------------------------------------------------------------------
+
+/**
+ * Ensures today's store-day shift exists (auto-opening it on first use) and
+ * returns it. Returns `shift: null` if today's store-day was already closed
+ * — the UI shows "store day closed" rather than a broken "open shift" flow,
+ * since there is no manual open step anymore (see PART 4 of the cashier
+ * reshape).
+ */
+export async function getOpenShiftAction(input: { branchId: string }) {
+  const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  try {
+    const shift = await ensureShiftOpenForToday(DEMO_TENANT_ID, input.branchId, ctx.userId);
+    return { shift };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to load shift' };
   }
 }
 
@@ -295,7 +343,7 @@ export async function closeShiftAction(input: { shiftId: string; countedCashCent
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
 
   try {
-    const result = await closeShift({ ...parsed.data, actorId: ctx.userId });
+    const result = await closeStoreDayShift({ ...parsed.data, actorId: ctx.userId });
     return { result };
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Failed to close shift' };
@@ -328,7 +376,7 @@ export async function openCartAction(input: { branchId: string; customerId?: str
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
 
   try {
-    const shift = await getOpenShift(DEMO_TENANT_ID, parsed.data.branchId, ctx.userId);
+    const shift = await ensureShiftOpenForToday(DEMO_TENANT_ID, parsed.data.branchId, ctx.userId);
     if (!shift) return { error: 'no_open_shift' };
 
     const result = await openCart({
@@ -418,6 +466,7 @@ const settleCartSchema = z.object({
         method: z.enum(['cash', 'card', 'wallet']),
         amountCents: z.number().int().positive(),
         cardReference: z.string().trim().max(80).optional(),
+        payerCustomerId: z.string().uuid().optional(),
       })
     )
     .min(1),
@@ -425,7 +474,7 @@ const settleCartSchema = z.object({
 
 export async function settleCartAction(input: {
   cartId: string;
-  payments: Array<{ method: 'cash' | 'card' | 'wallet'; amountCents: number; cardReference?: string }>;
+  payments: Array<{ method: 'cash' | 'card' | 'wallet'; amountCents: number; cardReference?: string; payerCustomerId?: string }>;
 }) {
   const ctx = await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
   const parsed = settleCartSchema.safeParse(input);
@@ -550,9 +599,24 @@ export async function getInvoiceForReceiptAction(input: { invoiceId: string }) {
     const invoice = await getInvoiceById(input.invoiceId, DEMO_TENANT_ID);
     if (!invoice) return { error: 'Invoice not found' };
     const paymentBreakdown = await getInvoicePaymentBreakdown(invoice);
-    return { invoice, paymentBreakdown };
+    const qrDataUrl = await QRCode.toDataURL(invoice.qr_tlv_base64, { margin: 1, width: 220 });
+    return { invoice, paymentBreakdown, qrDataUrl };
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Failed to load invoice' };
+  }
+}
+
+/** Invoice for a session that's already been paid, if one exists — sessions still open on a tab have none yet. */
+export async function getInvoiceForSessionAction(input: { sessionId: string }) {
+  await requireRole(DEMO_TENANT_ID, [...STAFF_ROLES]);
+  try {
+    const admin = createAdminClient();
+    const { data: payment } = await admin.from('payments').select('id').eq('session_id', input.sessionId).eq('status', 'captured').maybeSingle();
+    if (!payment) return { invoiceId: null };
+    const { data: invoice } = await admin.from('invoices').select('id').eq('source_payment_id', payment.id).maybeSingle();
+    return { invoiceId: invoice?.id ?? null };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to look up invoice' };
   }
 }
 

@@ -8,6 +8,63 @@ export interface EndActiveSessionResult {
   alreadyEnded: boolean;
 }
 
+export interface ActiveSessionRow {
+  sessionId: string;
+  stationId: string;
+  stationCode: string;
+  stationDisplayName: string;
+  customerName: string | null;
+  startedAt: string;
+  endsAt: string | null;
+  status: 'active' | 'paused';
+}
+
+/**
+ * Staff-only view of every currently running session on a branch, with real
+ * customer names — unlike the public venue state (get_public_venue_state),
+ * which is deliberately anonymized and only exposes station status. Powers
+ * the cashier's "running sessions" panel (end-from-the-same-screen).
+ */
+export async function getActiveSessionsForBranch(tenantId: string, branchId: string): Promise<ActiveSessionRow[]> {
+  const admin = createAdminClient();
+  const { data: sessionsRaw, error } = await admin
+    .from('sessions')
+    .select('id, station_id, customer_id, customer_label, started_at, ends_at, status')
+    .eq('tenant_id', tenantId)
+    .eq('branch_id', branchId)
+    .in('status', ['active', 'paused'])
+    .order('started_at', { ascending: true });
+  if (error) throw error;
+  const sessions = sessionsRaw ?? [];
+  if (sessions.length === 0) return [];
+
+  const stationIds = [...new Set(sessions.map((s) => s.station_id))];
+  const customerIds = [...new Set(sessions.map((s) => s.customer_id).filter((id): id is string => !!id))];
+
+  const [{ data: stationsRaw }, { data: profilesRaw }] = await Promise.all([
+    admin.from('stations').select('id, code, display_name').in('id', stationIds),
+    customerIds.length
+      ? admin.from('profiles').select('id, full_name').in('id', customerIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; full_name: string | null }> }),
+  ]);
+  const stationMap = new Map((stationsRaw ?? []).map((s) => [s.id, s]));
+  const profileMap = new Map((profilesRaw ?? []).map((p) => [p.id, p.full_name]));
+
+  return sessions.map((s) => {
+    const station = stationMap.get(s.station_id);
+    return {
+      sessionId: s.id,
+      stationId: s.station_id,
+      stationCode: station?.code ?? '—',
+      stationDisplayName: station?.display_name ?? '—',
+      customerName: (s.customer_id ? profileMap.get(s.customer_id) : null) ?? s.customer_label ?? null,
+      startedAt: s.started_at,
+      endsAt: s.ends_at,
+      status: s.status as 'active' | 'paused',
+    };
+  });
+}
+
 /**
  * Ends the currently active/paused session for a station (if any) and logs
  * the action. Idempotent — calling this when no active session exists is a

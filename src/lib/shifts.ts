@@ -1,10 +1,12 @@
 import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getVenueDateForNow } from '@/lib/slots';
 
 export interface Shift {
   id: string;
   openedAt: string;
   openingFloatCents: number;
+  storeDate: string;
   status: 'open' | 'closed';
 }
 
@@ -53,74 +55,124 @@ async function sumPaymentsByMethod(shiftId: string): Promise<ShiftMethodTotals> 
   return totals;
 }
 
-/**
- * Open a new cashier shift. Rejects if this cashier already has one open on
- * this branch — the partial unique index on cashier_shifts also enforces
- * this at the DB level, so a race just surfaces as a duplicate-key error.
- */
-export async function openShift(input: {
-  tenantId: string;
-  branchId: string;
-  cashierId: string;
-  openingFloatCents: number;
-}): Promise<{ shiftId: string }> {
+/** Today's venue-day date ('YYYY-MM-DD'), per the branch's own opening hours + tenant timezone. */
+async function resolveStoreDateForToday(branchId: string): Promise<string> {
   const admin = createAdminClient();
+  const { data: branch, error } = await admin
+    .from('branches')
+    .select('opens_at, closes_at, tenant_id')
+    .eq('id', branchId)
+    .maybeSingle();
+  if (error || !branch) throw error ?? new Error('Branch not found');
 
-  const existing = await getOpenShift(input.tenantId, input.branchId, input.cashierId);
-  if (existing) throw new Error('shift_already_open');
+  const { data: tenant } = await admin.from('tenants').select('timezone').eq('id', branch.tenant_id).maybeSingle();
+  const timezone = tenant?.timezone ?? 'Asia/Riyadh';
+
+  return getVenueDateForNow(branch.opens_at, branch.closes_at, timezone);
+}
+
+function toShift(row: {
+  id: string;
+  opened_at: string;
+  opening_float_cents: number;
+  store_date: string;
+  status: string;
+}): Shift {
+  return {
+    id: row.id,
+    openedAt: row.opened_at,
+    openingFloatCents: row.opening_float_cents,
+    storeDate: row.store_date,
+    status: row.status as 'open' | 'closed',
+  };
+}
+
+/** The shift row for this branch's current store-day, if one has been created yet (open or closed). */
+export async function getCurrentStoreDayShift(tenantId: string, branchId: string): Promise<Shift | null> {
+  const admin = createAdminClient();
+  const storeDate = await resolveStoreDateForToday(branchId);
+
+  const { data, error } = await admin
+    .from('cashier_shifts')
+    .select('id, opened_at, opening_float_cents, store_date, status')
+    .eq('tenant_id', tenantId)
+    .eq('branch_id', branchId)
+    .eq('store_date', storeDate)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return toShift(data);
+}
+
+/**
+ * Ensure today's store-day shift exists and is usable, auto-opening one if
+ * this is the first transaction of the day. Returns `null` if today's shift
+ * already exists but was already closed — the day has been reconciled and
+ * is not silently reopened; a manager would need to handle that case
+ * explicitly (out of scope here, kept simple per the "keep it simple" brief).
+ *
+ * Opening float is carried over from the branch's most recently CLOSED
+ * shift's counted cash (what was actually in the drawer at last close),
+ * defaulting to 0 if there is no prior shift — there is no manual
+ * open-float entry step in this model.
+ */
+export async function ensureShiftOpenForToday(tenantId: string, branchId: string, actorId: string): Promise<Shift | null> {
+  const existing = await getCurrentStoreDayShift(tenantId, branchId);
+  if (existing) return existing.status === 'open' ? existing : null;
+
+  const admin = createAdminClient();
+  const storeDate = await resolveStoreDateForToday(branchId);
+
+  const { data: lastClosed } = await admin
+    .from('cashier_shifts')
+    .select('counted_cash_cents')
+    .eq('tenant_id', tenantId)
+    .eq('branch_id', branchId)
+    .eq('status', 'closed')
+    .order('opened_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const openingFloatCents = lastClosed?.counted_cash_cents ?? 0;
 
   const { data, error } = await admin
     .from('cashier_shifts')
     .insert({
-      tenant_id: input.tenantId,
-      branch_id: input.branchId,
-      cashier_id: input.cashierId,
-      opening_float_cents: input.openingFloatCents,
+      tenant_id: tenantId,
+      branch_id: branchId,
+      cashier_id: actorId,
+      opening_float_cents: openingFloatCents,
+      store_date: storeDate,
     } as never)
-    .select('id')
+    .select('id, opened_at, opening_float_cents, store_date, status')
     .single();
-  if (error || !data) throw error ?? new Error('Failed to open shift');
+  // A concurrent request may have inserted today's row first (unique
+  // (branch_id, store_date)) — that's not a real failure, just re-read it.
+  if (error || !data) {
+    const raced = await getCurrentStoreDayShift(tenantId, branchId);
+    if (raced) return raced.status === 'open' ? raced : null;
+    throw error ?? new Error('Failed to open store-day shift');
+  }
 
   await admin.from('activity_log').insert({
-    tenant_id: input.tenantId,
-    branch_id: input.branchId,
-    actor_id: input.cashierId,
+    tenant_id: tenantId,
+    branch_id: branchId,
+    actor_id: actorId,
     actor_role: 'staff',
     action: 'shift.opened',
     entity_type: 'cashier_shift',
     entity_id: data.id,
-    after: { opening_float_cents: input.openingFloatCents },
+    after: { opening_float_cents: openingFloatCents, store_date: storeDate, carried_over: (lastClosed?.counted_cash_cents ?? null) !== null },
   });
 
-  return { shiftId: data.id };
-}
-
-export async function getOpenShift(tenantId: string, branchId: string, cashierId: string): Promise<Shift | null> {
-  const admin = createAdminClient();
-  const { data, error } = await admin
-    .from('cashier_shifts')
-    .select('id, opened_at, opening_float_cents, status')
-    .eq('tenant_id', tenantId)
-    .eq('branch_id', branchId)
-    .eq('cashier_id', cashierId)
-    .eq('status', 'open')
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  return {
-    id: data.id,
-    openedAt: data.opened_at,
-    openingFloatCents: data.opening_float_cents,
-    status: data.status as 'open' | 'closed',
-  };
+  return toShift(data);
 }
 
 /**
- * Close a shift: sum this shift's captured payments by method, compute
- * expected cash (opening float + cash sales) and the variance against what
- * the cashier actually counted.
+ * Close the current store-day: sum this shift's captured payments by method,
+ * compute expected cash (opening float + cash sales) and the variance
+ * against what the cashier actually counted.
  */
-export async function closeShift(input: {
+export async function closeStoreDayShift(input: {
   shiftId: string;
   countedCashCents: number;
   closeNote?: string;

@@ -458,6 +458,8 @@ export interface SettleCartPaymentLine {
   method: 'cash' | 'card' | 'wallet';
   amountCents: number;
   cardReference?: string;
+  /** wallet only — charge a DIFFERENT customer's wallet than the cart's own. Undefined = the cart's own customer pays. */
+  payerCustomerId?: string;
 }
 
 export interface SettleCartResult {
@@ -500,7 +502,7 @@ export async function settleCart(input: {
   if (input.payments.length === 0) throw new Error('no_payment_lines');
 
   const walletLines = input.payments.filter((p) => p.method === 'wallet');
-  if (walletLines.length > 0 && !cart.customerId) throw new Error('wallet_requires_customer');
+  if (walletLines.some((l) => !l.payerCustomerId) && !cart.customerId) throw new Error('wallet_requires_customer');
 
   const tenderedTotal = input.payments.reduce((sum, p) => sum + p.amountCents, 0);
   if (tenderedTotal < cart.totalCents) throw new Error('underpayment');
@@ -517,6 +519,7 @@ export async function settleCart(input: {
     tenderedCents: number;
     appliedCents: number;
     cardReference?: string;
+    payerCustomerId?: string;
     paymentId: string;
   }> = [];
 
@@ -526,12 +529,16 @@ export async function settleCart(input: {
     if (line.method === 'cash') changeCents += line.amountCents - appliedCents;
 
     if (line.method === 'wallet') {
+      const payerId = line.payerCustomerId ?? cart.customerId!;
       await debitWallet({
         tenantId: cart.tenantId,
-        customerId: cart.customerId!,
+        customerId: payerId,
         amountCents: appliedCents,
         kind: 'debit_purchase',
-        reason: `Cart settlement — ${cart.label ?? 'walk-in group'}`,
+        reason:
+          line.payerCustomerId && line.payerCustomerId !== cart.customerId
+            ? `Cart settlement (paid for another customer) — ${cart.label ?? 'walk-in group'}`
+            : `Cart settlement — ${cart.label ?? 'walk-in group'}`,
         referenceType: 'cart',
         referenceId: cart.id,
         createdBy: input.actorId,
@@ -563,6 +570,7 @@ export async function settleCart(input: {
       tenderedCents: line.amountCents,
       appliedCents,
       cardReference: line.cardReference,
+      payerCustomerId: line.method === 'wallet' ? line.payerCustomerId : undefined,
       paymentId: payment.id,
     });
   }
@@ -575,9 +583,27 @@ export async function settleCart(input: {
       method: r.method,
       amount_cents: r.tenderedCents,
       card_reference: r.cardReference ?? null,
+      payer_customer_id: r.payerCustomerId ?? null,
       payment_id: r.paymentId,
     })) as never
   );
+
+  // Accounting trail for any line paid from a wallet OTHER than the cart's
+  // own customer — in addition to the wallet_ledger entry debitWallet()
+  // already wrote, this links payer <-> cart <-> cashier for reporting.
+  const crossWalletCharges = cartPaymentRows.filter((r) => r.method === 'wallet' && r.payerCustomerId && r.payerCustomerId !== cart.customerId);
+  for (const charge of crossWalletCharges) {
+    await admin.from('activity_log').insert({
+      tenant_id: cart.tenantId,
+      branch_id: cart.branchId,
+      actor_id: input.actorId,
+      actor_role: 'staff',
+      action: 'wallet.charged_for_other',
+      entity_type: 'cart',
+      entity_id: cart.id,
+      after: { payer_customer_id: charge.payerCustomerId, cart_id: cart.id, amount_cents: charge.appliedCents, charged_by: input.actorId },
+    });
+  }
 
   const { error: settleError } = await admin
     .from('carts')

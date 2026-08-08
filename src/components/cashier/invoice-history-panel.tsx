@@ -25,9 +25,11 @@ interface InvoiceHistoryPanelProps {
   shiftId: string | null;
   open: boolean;
   onClose: () => void;
+  /** Pulls the invoice into the side panel instead of navigating to /invoices/[id] in a new tab. */
+  onView: (invoiceId: string) => void;
 }
 
-export function InvoiceHistoryPanel({ branchId, shiftId, open, onClose }: InvoiceHistoryPanelProps) {
+export function InvoiceHistoryPanel({ branchId, shiftId, open, onClose, onView }: InvoiceHistoryPanelProps) {
   const { t } = useT();
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<'shift' | 'all'>('shift');
@@ -118,11 +120,9 @@ export function InvoiceHistoryPanel({ branchId, shiftId, open, onClose }: Invoic
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="font-mono tabular-nums font-semibold">{formatMoney(inv.totalCents)}</span>
-                    <a href={`/invoices/${inv.id}`} target="_blank" rel="noreferrer">
-                      <Button variant="ghost" size="icon" title={t('invoices.view')}>
-                        <Eye className="h-3.5 w-3.5" />
-                      </Button>
-                    </a>
+                    <Button variant="ghost" size="icon" title={t('invoices.view')} onClick={() => { onView(inv.id); onClose(); }}>
+                      <Eye className="h-3.5 w-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

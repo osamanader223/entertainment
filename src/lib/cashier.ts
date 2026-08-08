@@ -35,9 +35,12 @@ export async function lookupCustomerByPhone(phone: string): Promise<CashierCusto
 }
 
 /**
- * Create a walk-in customer (phone-only auth user).
- * The handle_new_user trigger creates the profiles row; we then label it as a walk-in.
- * If the phone is already registered, falls back to returning the existing customer.
+ * Create a customer account from the cashier (phone-only auth user, same
+ * mechanism a self-signup uses) — the handle_new_user trigger creates the
+ * profiles row. This is a REAL account, not a second-class "walk-in": the
+ * phone becomes their login, and it earns loyalty points like any other
+ * customer (no walk_in_created flag is set). If the phone is already
+ * registered, falls back to returning the existing customer.
  */
 export async function createWalkInCustomer({
   phone,
@@ -53,7 +56,7 @@ export async function createWalkInCustomer({
   const { data, error } = await admin.auth.admin.createUser({
     phone: normalized,
     phone_confirm: true,
-    user_metadata: { full_name: fullName, walk_in_created: true },
+    user_metadata: { full_name: fullName },
   });
 
   if (error || !data.user) {
@@ -66,7 +69,7 @@ export async function createWalkInCustomer({
 
   await admin
     .from('profiles')
-    .update({ walk_in_created: true, full_name: fullName })
+    .update({ full_name: fullName })
     .eq('id', userId);
 
   return { id: userId };

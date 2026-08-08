@@ -491,6 +491,7 @@ export interface Database {
           variance_cents: number | null;
           close_note: string | null;
           status: 'open' | 'closed';
+          store_date: string;
         };
         Insert: Partial<Database['public']['Tables']['cashier_shifts']['Row']> & {
           tenant_id: string;
@@ -552,6 +553,7 @@ export interface Database {
           method: 'cash' | 'card' | 'wallet';
           amount_cents: number;
           card_reference: string | null;
+          payer_customer_id: string | null;
           payment_id: string | null;
           created_at: string;
         };
